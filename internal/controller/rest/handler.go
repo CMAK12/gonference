@@ -3,28 +3,44 @@ package rest
 import (
 	"errors"
 	"fmt"
-	"gonference/internal/config"
-	"gonference/internal/controller/middleware"
 	"log/slog"
 	"net/http"
+
+	"gonference/internal/config"
+	"gonference/internal/controller/middleware"
+	"gonference/internal/core"
 )
 
 type Handler struct {
 	logger *slog.Logger
 	srv    *http.Server
+
+	hub *core.Hub
 }
 
-func NewHandler(cfg config.REST) *Handler {
+func NewHandler(cfg config.REST, hub *core.Hub) *Handler {
 	logger := slog.Default().With(slog.String("component", "rest"))
 
 	mux := http.NewServeMux()
 	handler := middleware.WithLogging(mux, logger)
 	handler = middleware.WithCORS(handler)
 
-	h := &Handler{logger: logger, srv: &http.Server{Addr: fmt.Sprintf(":%d", cfg.Port), Handler: handler}}
+	h := &Handler{
+		logger: logger,
+		srv: &http.Server{
+			Addr:    fmt.Sprintf(":%d", cfg.Port),
+			Handler: handler,
+		},
+		hub: hub,
+	}
 
 	mux.HandleFunc("GET /whep", h.getWHEP)
 	mux.HandleFunc("POST /whep", h.handleWHEP)
+
+	mux.HandleFunc("POST /conference/create", h.createConference)
+	mux.HandleFunc("GET /conference", h.listConferences)
+	mux.HandleFunc("GET /conference/{id}/join", h.joinConference)
+	mux.HandleFunc("DELETE /conference/{id}/leave", h.removeMember)
 
 	return h
 }
@@ -33,22 +49,14 @@ func (h *Handler) ListenAndServe() {
 	h.logger.Info("started", slog.String("addr", h.srv.Addr))
 
 	if err := h.srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-		h.logger.Error(err.Error())
+		h.logger.Error("during serving", slog.String("error", err.Error()))
 	}
 }
 
 func (h *Handler) Close() {
 	if err := h.srv.Close(); err != nil {
-		h.logger.Error(err.Error())
+		h.logger.Error("during closing", slog.String("error", err.Error()))
 	}
 
 	h.logger.Info("stopped")
-}
-
-func (h *Handler) handleWHEP(w http.ResponseWriter, r *http.Request) {
-	return
-}
-
-func (h *Handler) getWHEP(w http.ResponseWriter, r *http.Request) {
-	return
 }

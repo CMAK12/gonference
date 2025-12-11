@@ -2,11 +2,13 @@ module gonference
 
 go 1.24.2
 
-require github.com/pion/webrtc/v3 v3.3.6
+require (
+	github.com/google/uuid v1.3.1
+	github.com/pion/webrtc/v3 v3.3.6
+)
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/google/uuid v1.3.1 // indirect
 	github.com/pion/datachannel v1.5.8 // indirect
 	github.com/pion/dtls/v2 v2.2.12 // indirect
 	github.com/pion/ice/v2 v2.3.38 // indirect

@@ -4,10 +4,11 @@ import (
 	"embed"
 	"errors"
 	"fmt"
-	"gonference/internal/config"
 	"html/template"
 	"log/slog"
 	"net/http"
+
+	"gonference/internal/config"
 )
 
 //go:embed templates
@@ -30,7 +31,7 @@ func NewHandler(cfg config.AdminPanel) *AdminPanelHandler {
 		srv:    &http.Server{Addr: fmt.Sprintf(":%d", cfg.Port), Handler: mux}}
 
 	mux.HandleFunc("/", handler.getIndex)
-	mux.HandleFunc("/conference", handler.getConference)
+	mux.HandleFunc("/conference/{id}", handler.getConference)
 
 	return handler
 }
@@ -56,5 +57,6 @@ func (h *AdminPanelHandler) getIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminPanelHandler) getConference(w http.ResponseWriter, r *http.Request) {
+	fmt.Println(r.URL.Query().Get("username"))
 	_ = templates.ExecuteTemplate(w, "webrtc.html", nil)
 }

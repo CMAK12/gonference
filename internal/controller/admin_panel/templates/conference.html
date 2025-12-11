@@ -5,6 +5,12 @@
     <title>Conference</title>
 </head>
 <body>
+    <script>
+        const params = new URLSearchParams(window.location.search)
 
+        const username = params.get("username")
+
+        console.log(username)
+    </script>
 </body>
 </html>

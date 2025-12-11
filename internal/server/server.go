@@ -1,19 +1,23 @@
 package server
 
 import (
-	"gonference/internal/config"
-	"gonference/internal/controller/admin_panel"
-	rest "gonference/internal/controller/rest"
 	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
+
+	"gonference/internal/config"
+	"gonference/internal/controller/admin_panel"
+	"gonference/internal/controller/rest"
+	"gonference/internal/core"
 )
 
 func Run() {
 	cfg := config.MustLoad()
 
-	rest := rest.NewHandler(cfg.REST)
+	hub := core.NewHub()
+
+	rest := rest.NewHandler(cfg.REST, hub)
 	go rest.ListenAndServe()
 
 	ap := admin_panel.NewHandler(cfg.AdminPanel)
