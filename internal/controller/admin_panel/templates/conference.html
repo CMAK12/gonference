@@ -2,15 +2,98 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Conference</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Join Conference</title>
+    <style>
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 10px;
+        }
+        video {
+            width: 100%;
+            background: black;
+        }
+    </style>
 </head>
 <body>
-    <script>
-        const params = new URLSearchParams(window.location.search)
+<div id="videos" class="grid"></div>
 
-        const username = params.get("username")
+<script>
+    const roomId = "room1"
+    const peerId = crypto.randomUUID()
+    console.log(peerId)
 
-        console.log(username)
-    </script>
+    const videos = document.getElementById('videos');
+
+    const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+    })
+
+    pc.ontrack = (event) => {
+        const stream = event.streams[0];
+        console.log(stream.id)
+        if (!stream) return;
+
+        if (stream.id === peerId) return;
+
+        createVideoElement(stream);
+    }
+
+    (async () => {
+        await initLocalMedia();
+        await negotiate();
+    })();
+
+    async function initLocalMedia() {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: true,
+            audio: false
+        });
+
+        createVideoElement(stream, true);
+
+        stream.getTracks().forEach(track => {
+            pc.addTrack(track, stream);
+        });
+    }
+
+    async function negotiate() {
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+
+        const response = await fetch(`http://localhost:8080/whep`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                roomId: roomId,
+                memberId: peerId,
+                sdp: offer.sdp
+            })
+        });
+
+        const answer = await response.text();
+
+        await pc.setRemoteDescription({
+            type: "answer",
+            sdp: answer
+        });
+    }
+
+    function createVideoElement(stream, muted = false) {
+        const video = document.createElement('video');
+        video.id = `video-${stream.id}`;
+        video.srcObject = stream;
+        video.autoplay = true;
+        video.playsInline = true;
+        video.muted = muted;
+
+        videos.appendChild(video);
+
+        video.onloadedmetadata = () => {
+            video.play().catch(console.error);
+        };
+    }
+</script>
 </body>
 </html>

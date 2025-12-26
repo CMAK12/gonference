@@ -1,12 +1,10 @@
-package conference
+package sfu
 
 import "github.com/pion/webrtc/v3"
 
 const (
-	// Video codecs
 	VP8 uint8 = 120
 
-	// Audio codecs
 	OPUS uint8 = 109
 )
 

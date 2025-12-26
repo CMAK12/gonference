@@ -3,22 +3,27 @@ package rest
 import (
 	"errors"
 	"fmt"
+	"gonference/internal/sfu"
 	"log/slog"
 	"net/http"
 
 	"gonference/internal/config"
 	"gonference/internal/controller/middleware"
-	"gonference/internal/core"
 )
+
+type SFU interface {
+	GetPeer(roomID, memberID string) *sfu.Peer
+	AddPeer(ws sfu.Signaling, roomID, memberID string) (*sfu.Peer, error)
+}
 
 type Handler struct {
 	logger *slog.Logger
 	srv    *http.Server
 
-	hub *core.Hub
+	sfu SFU
 }
 
-func NewHandler(cfg config.REST, hub *core.Hub) *Handler {
+func NewHandler(cfg config.REST, sfu SFU) *Handler {
 	logger := slog.Default().With(slog.String("component", "rest"))
 
 	mux := http.NewServeMux()
@@ -31,11 +36,13 @@ func NewHandler(cfg config.REST, hub *core.Hub) *Handler {
 			Addr:    fmt.Sprintf(":%d", cfg.Port),
 			Handler: handler,
 		},
-		hub: hub,
+		sfu: sfu,
 	}
 
 	mux.HandleFunc("GET /whep", h.getWHEP)
 	mux.HandleFunc("POST /whep", h.handleWHEP)
+
+	mux.HandleFunc("GET /ws", h.wsHandler)
 
 	mux.HandleFunc("POST /conference/create", h.createConference)
 	mux.HandleFunc("GET /conference", h.listConferences)

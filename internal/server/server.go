@@ -1,6 +1,7 @@
 package server
 
 import (
+	"gonference/internal/sfu"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -9,15 +10,17 @@ import (
 	"gonference/internal/config"
 	"gonference/internal/controller/admin_panel"
 	"gonference/internal/controller/rest"
-	"gonference/internal/core"
 )
 
 func Run() {
 	cfg := config.MustLoad()
 
-	hub := core.NewHub()
+	sfu, err := sfu.New()
+	if err != nil {
+		slog.Error("Failed to create SFU", slog.String("error", err.Error()))
+	}
 
-	rest := rest.NewHandler(cfg.REST, hub)
+	rest := rest.NewHandler(cfg.REST, sfu)
 	go rest.ListenAndServe()
 
 	ap := admin_panel.NewHandler(cfg.AdminPanel)
