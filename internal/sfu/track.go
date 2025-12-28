@@ -1,12 +1,14 @@
 package sfu
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/pion/webrtc/v3"
 )
 
 type TrackForwarder struct {
+	peer   *Peer
 	remote *webrtc.TrackRemote
 
 	mux    sync.RWMutex
@@ -15,8 +17,9 @@ type TrackForwarder struct {
 	closed chan struct{}
 }
 
-func NewTrackForwarder(remote *webrtc.TrackRemote) *TrackForwarder {
+func NewTrackForwarder(peer *Peer, remote *webrtc.TrackRemote) *TrackForwarder {
 	return &TrackForwarder{
+		peer:   peer,
 		remote: remote,
 		locals: make(map[string]*webrtc.TrackLocalStaticRTP),
 		closed: make(chan struct{}),
@@ -24,10 +27,13 @@ func NewTrackForwarder(remote *webrtc.TrackRemote) *TrackForwarder {
 }
 
 func (tf *TrackForwarder) AddPeer(id string) (*webrtc.TrackLocalStaticRTP, error) {
+	trackID := fmt.Sprintf("%s-%s", tf.remote.ID(), id)
+	streamID := fmt.Sprintf("from-%s-to-%s", tf.peer.ID, id)
+
 	local, err := webrtc.NewTrackLocalStaticRTP(
 		tf.remote.Codec().RTPCodecCapability,
-		tf.remote.ID(),
-		tf.remote.StreamID(),
+		trackID,
+		streamID,
 	)
 	if err != nil {
 		return nil, err
@@ -36,6 +42,8 @@ func (tf *TrackForwarder) AddPeer(id string) (*webrtc.TrackLocalStaticRTP, error
 	tf.mux.Lock()
 	tf.locals[id] = local
 	tf.mux.Unlock()
+
+	go tf.peer.SendPLI(uint32(tf.remote.SSRC()))
 
 	return local, nil
 }
