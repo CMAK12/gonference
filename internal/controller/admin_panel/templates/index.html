@@ -70,12 +70,18 @@
     const roomId = "room1"
     const peerId = crypto.randomUUID();
 
+    let pendingCandidates = [];
+
     const videos = document.getElementById('videos');
 
     const ws = new WebSocket("ws://localhost:8080/ws")
     const pc = new RTCPeerConnection({
         iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
     })
+
+    pc.oniceconnectionstatechange = () => {
+        console.log('ICE connection state:', pc.iceConnectionState);
+    }
 
     pc.ontrack = (event) => {
         const stream = event.streams[0];
@@ -93,6 +99,21 @@
         createVideoElement(stream);
     }
 
+    pc.onicecandidate = (event) => {
+        if (!event.candidate) return
+
+        ws.send(JSON.stringify({
+            type: "candidate",
+            roomId: roomId,
+            memberId: peerId,
+            candidate: event.candidate
+        }))
+    }
+
+    pc.onnegotiationneeded = (event) => {
+        console.log("negotiationneeded event:", event);
+    }
+
     ws.onmessage = async (event) => {
         console.log(event.data)
         const msg = JSON.parse(event.data);
@@ -104,6 +125,16 @@
                     type: "answer",
                     sdp: msg.sdp
                 });
+
+                for (const c of pendingCandidates) {
+                    try {
+                        await pc.addIceCandidate(c);
+                    } catch (e) {
+                        console.warn('failed to add queued candidate', e);
+                    }
+                }
+                pendingCandidates = [];
+
                 break;
             case "offer":
                 await pc.setRemoteDescription({
@@ -122,6 +153,19 @@
                     sdp: pc.localDescription.sdp
                 }));
                 break;
+            case "candidate":
+                const cand = msg.candidate;
+                if (!pc.remoteDescription) {
+                    pendingCandidates.push(cand);
+                    return;
+                }
+                try {
+                    await pc.addIceCandidate(cand);
+                } catch (e) {
+                    console.warn('failed to add candidate', e);
+                }
+                break;
+
         }
     }
 
@@ -155,23 +199,7 @@
             memberId: peerId,
             sdp: offer.sdp
         }));
-        // const response = await fetch(`http://localhost:8080/whep`, {
-        //     method: 'POST',
-        //     headers: { 'Content-Type': 'application/json' },
-        //     body: JSON.stringify({
-        //         roomId: roomId,
-        //         memberId: peerId,
-        //         sdp: offer.sdp
-        //     })
-        // });
 
-        // const answer = await response.text();
-        // console.log('received answer from server');
-        //
-        // await pc.setRemoteDescription({
-        //     type: "answer",
-        //     sdp: answer
-        // });
         console.log('negotiation complete');
     }
 
@@ -197,7 +225,7 @@
         video.muted = muted;
 
         videos.appendChild(video);
-        updateLayout();
+        updateLayout();8
     }
 </script>
 

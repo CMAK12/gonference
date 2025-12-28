@@ -19,10 +19,11 @@ var upgrader = websocket.Upgrader{
 }
 
 type Message struct {
-	Type     string `json:"type"`
-	RoomID   string `json:"roomId"`
-	MemberID string `json:"memberId"`
-	SDP      string `json:"sdp"`
+	Type      string                   `json:"type"`
+	RoomID    string                   `json:"roomId"`
+	MemberID  string                   `json:"memberId"`
+	SDP       string                   `json:"sdp,omitempty"`
+	Candidate *webrtc.ICECandidateInit `json:"candidate,omitempty"`
 }
 
 func (h *Handler) wsHandler(w http.ResponseWriter, r *http.Request) {
@@ -48,7 +49,9 @@ func (h *Handler) wsHandler(w http.ResponseWriter, r *http.Request) {
 
 		switch message.Type {
 		case "offer":
-			peer, err := h.sfu.AddPeer(conn, message.RoomID, message.MemberID)
+			room := h.sfu.GetOrCreateRoom(message.RoomID)
+
+			peer, err := room.AddPeer(conn, message.MemberID)
 			if err != nil {
 				h.logger.Error("Failed to add peer", slog.String("error", err.Error()))
 				return
@@ -75,17 +78,28 @@ func (h *Handler) wsHandler(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case "answer":
-			peer := h.sfu.GetPeer(message.RoomID, message.MemberID)
-			if peer == nil {
+			peer, ok := h.sfu.GetOrCreateRoom(message.RoomID).GetPeer(message.MemberID)
+			if !ok {
+				h.logger.Error("Peer not found", slog.String("memberId", message.MemberID))
 				return
 			}
 
-			err := peer.SetRemoteDescription(webrtc.SessionDescription{
+			err := peer.ValidateAnswer(webrtc.SessionDescription{
 				Type: webrtc.SDPTypeAnswer,
 				SDP:  message.SDP,
 			})
 			if err != nil {
 				h.logger.Error("SetRemote(answer) failed", slog.String("error", err.Error()))
+			}
+		case "candidate":
+			peer, ok := h.sfu.GetOrCreateRoom(message.RoomID).GetPeer(message.MemberID)
+			if !ok {
+				h.logger.Error("Peer not found", slog.String("memberId", message.MemberID))
+				return
+			}
+
+			if err := peer.AddICECandidate(*message.Candidate); err != nil {
+				h.logger.Error("AddICECandidate failed", slog.String("error", err.Error()))
 			}
 		default:
 			h.logger.Info("unknown message type:", message.Type)

@@ -7,88 +7,84 @@ import (
 )
 
 type Room struct {
-	id     string
-	mux    sync.RWMutex
-	peers  map[string]*Peer
-	tracks map[string]*webrtc.TrackRemote
+	id  string
+	api *webrtc.API
+
+	mux        sync.RWMutex
+	peers      map[string]*Peer
+	forwarders map[string]*TrackForwarder
 }
 
-func NewRoom(id string) *Room {
+func NewRoom(api *webrtc.API, id string) *Room {
 	return &Room{
-		id:     id,
-		peers:  make(map[string]*Peer),
-		tracks: make(map[string]*webrtc.TrackRemote),
+		id:         id,
+		api:        api,
+		peers:      make(map[string]*Peer),
+		forwarders: make(map[string]*TrackForwarder),
 	}
 }
 
-func (r *Room) AddPeer(api *webrtc.API, ws Signaling, peerID string) (*Peer, error) {
-	r.mux.Lock()
-	defer r.mux.Unlock()
+func (r *Room) ID() string {
+	return r.id
+}
 
-	peer, err := NewPeer(api, ws, peerID, r)
+func (r *Room) GetPeer(id string) (*Peer, bool) {
+	r.mux.RLock()
+	defer r.mux.RUnlock()
+
+	peer, ok := r.peers[id]
+	return peer, ok
+}
+
+func (r *Room) AddPeer(signal Signaling, id string) (*Peer, error) {
+	peer, err := NewPeer(r.api, signal, r, id)
 	if err != nil {
 		return nil, err
 	}
 
-	r.peers[peerID] = peer
+	r.mux.Lock()
+	defer r.mux.Unlock()
+	r.peers[id] = peer
 
-	for _, track := range r.tracks {
-		local, err := webrtc.NewTrackLocalStaticRTP(
-			track.Codec().RTPCodecCapability,
-			track.ID(),
-			track.StreamID(),
-		)
+	for _, forwarder := range r.forwarders {
+		local, err := forwarder.AddPeer(id)
 		if err != nil {
-			return nil, err
+			continue
 		}
 
-		_, err = peer.conn.AddTrack(local)
-		if err != nil {
-			return nil, err
-		}
-
-		peer.outTracks[track.ID()] = local
-
-		go forwardRTP(track, local)
+		peer.conn.AddTrack(local)
 	}
+
+	// Don't need to renegotiate here; negotiation is not over yet
+	//if err := peer.Renegotiate(); err != nil {
+	//	return nil, err
+	//}
 
 	return peer, nil
 }
 
-func (r *Room) AddIncomingTrack(from *Peer, remote *webrtc.TrackRemote) {
+func (r *Room) addIncomingTrack(from *Peer, remote *webrtc.TrackRemote) {
 	r.mux.Lock()
 	defer r.mux.Unlock()
 
-	r.tracks[remote.ID()] = remote
+	forwarder := NewTrackForwarder(remote)
+	r.forwarders[remote.ID()] = forwarder
 
-	for _, peer := range r.peers {
-		// do not send to self
-		if peer == from {
+	for peerID, peer := range r.peers {
+		if peerID == from.ID {
 			continue
 		}
 
-		local, err := webrtc.NewTrackLocalStaticRTP(
-			remote.Codec().RTPCodecCapability,
-			remote.ID(),
-			remote.StreamID(),
-		)
+		local, err := forwarder.AddPeer(peerID)
 		if err != nil {
 			continue
 		}
 
-		_, err = peer.conn.AddTrack(local)
-		if err != nil {
-			continue
-		}
-
-		peer.outTracks[remote.ID()] = local
-
+		peer.conn.AddTrack(local)
 		if err := peer.Renegotiate(); err != nil {
 			continue
 		}
-
-		from.SendPLI(uint32(remote.SSRC()))
-
-		go forwardRTP(remote, local)
 	}
+
+	forwarder.Start()
 }

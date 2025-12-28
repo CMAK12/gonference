@@ -7,12 +7,9 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
-type Signaling interface {
-	WriteMessage(messageType int, data []byte) error
-}
-
 type SFU struct {
-	api   *webrtc.API
+	api *webrtc.API
+
 	mux   sync.RWMutex
 	rooms map[string]*Room
 }
@@ -35,54 +32,28 @@ func New() (*SFU, error) {
 		webrtc.WithInterceptorRegistry(interceptorRegistry),
 	)
 
-	sfu := &SFU{
+	return &SFU{
 		api:   api,
 		rooms: make(map[string]*Room),
-	}
-
-	return sfu, nil
+	}, nil
 }
 
-func (u *SFU) GetPeer(roomID, peerID string) *Peer {
-	u.mux.RLock()
-	defer u.mux.RUnlock()
+func (s *SFU) GetOrCreateRoom(id string) *Room {
+	s.mux.Lock()
+	defer s.mux.Unlock()
 
-	if room, ok := u.rooms[roomID]; ok {
-		room.mux.RLock()
-		defer room.mux.RUnlock()
-		peer := room.peers[peerID]
-		return peer
+	room, ok := s.rooms[id]
+	if !ok {
+		room = NewRoom(s.api, id)
+		s.rooms[id] = room
 	}
 
-	return nil
+	return room
 }
 
-func (u *SFU) AddPeer(ws Signaling, roomID, peerID string) (*Peer, error) {
-	u.mux.Lock()
-	defer u.mux.Unlock()
+func (s *SFU) RemoveRoom(id string) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
 
-	var room *Room
-	if r, ok := u.rooms[roomID]; ok {
-		room = r
-	} else {
-		room = NewRoom(roomID)
-		u.rooms[roomID] = room
-	}
-
-	return room.AddPeer(u.api, ws, peerID)
-}
-
-func forwardRTP(remote *webrtc.TrackRemote, local *webrtc.TrackLocalStaticRTP) {
-	buf := make([]byte, 1500)
-
-	for {
-		n, _, err := remote.Read(buf)
-		if err != nil {
-			return
-		}
-
-		if _, err := local.Write(buf[:n]); err != nil {
-			return
-		}
-	}
+	delete(s.rooms, id)
 }

@@ -12,8 +12,7 @@ import (
 )
 
 type SFU interface {
-	GetPeer(roomID, memberID string) *sfu.Peer
-	AddPeer(ws sfu.Signaling, roomID, memberID string) (*sfu.Peer, error)
+	GetOrCreateRoom(id string) *sfu.Room
 }
 
 type Handler struct {

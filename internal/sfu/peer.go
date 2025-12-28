@@ -3,108 +3,134 @@ package sfu
 import (
 	"encoding/json"
 	"log/slog"
+	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
 )
 
-type Peer struct {
-	id string
-
-	conn   *webrtc.PeerConnection
-	ws     Signaling
-	logger *slog.Logger
-
-	inTracks  map[string]*webrtc.TrackRemote
-	outTracks map[string]*webrtc.TrackLocalStaticRTP
-
-	room *Room
+type Signaling interface {
+	WriteMessage(msgType int, payload []byte) error
 }
 
-func NewPeer(api *webrtc.API, ws Signaling, id string, room *Room) (*Peer, error) {
+type Peer struct {
+	ID string
+
+	logger *slog.Logger
+	conn   *webrtc.PeerConnection
+	room   *Room
+	signal Signaling
+
+	mux            sync.RWMutex
+	inTracks       map[string]*webrtc.TrackRemote
+	outTracks      map[string]*webrtc.TrackLocalStaticRTP
+	candidateQueue []webrtc.ICECandidateInit
+}
+
+func NewPeer(api *webrtc.API, signal Signaling, room *Room, id string) (*Peer, error) {
 	pc, err := api.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{
 				URLs: []string{"stun:stun.l.google.com:19302"},
 			},
+			{URLs: []string{"turn:turn.example.com:3478"}, Username: "TURN_USER", Credential: "TURN_PASS"},
 		},
 	})
-	if err != nil {
-		return nil, err
-	}
 
 	peer := &Peer{
-		id:        id,
+		ID:        id,
+		logger:    slog.Default().With("peer", id),
 		conn:      pc,
-		ws:        ws,
 		room:      room,
-		logger:    slog.Default().With("component", "peer"),
+		signal:    signal,
 		inTracks:  make(map[string]*webrtc.TrackRemote),
 		outTracks: make(map[string]*webrtc.TrackLocalStaticRTP),
 	}
 
-	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		peer.logger.Info(
-			"Peer connection state changed",
-			slog.String("state", state.String()),
-		)
-
-		switch state {
-		case webrtc.PeerConnectionStateConnected:
-			peer.logger.Info(
-				"Peer connection connected",
-				slog.String("peer", peer.id),
-			)
-
-		case webrtc.PeerConnectionStateDisconnected,
-			webrtc.PeerConnectionStateClosed,
-			webrtc.PeerConnectionStateFailed:
-			peer.logger.Info(
-				"Peer connection disconnected",
-				slog.String("peer", peer.id),
-			)
+	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
+		if c == nil {
+			return
 		}
+
+		msg, err := json.Marshal(map[string]any{
+			"type":      "candidate",
+			"roomId":    room.ID(),
+			"memberId":  id,
+			"candidate": c.ToJSON(),
+		})
+		if err != nil {
+			peer.logger.Error("Failed to marshal ICE candidate", slog.String("error", err.Error()))
+			return
+		}
+
+		peer.signal.WriteMessage(websocket.TextMessage, msg)
+	})
+
+	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		peer.logger.Info("Connection state change", slog.String("state", state.String()))
 	})
 
 	pc.OnTrack(func(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		peer.inTracks[remote.ID()] = remote
-		room.AddIncomingTrack(peer, remote)
+		peer.room.addIncomingTrack(peer, remote)
 	})
 
-	if _, err := pc.AddTransceiverFromKind(
-		webrtc.RTPCodecTypeVideo,
-		webrtc.RTPTransceiverInit{
-			Direction: webrtc.RTPTransceiverDirectionRecvonly,
+	pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
+		Direction: webrtc.RTPTransceiverDirectionRecvonly,
+	})
+
+	return peer, err
+}
+
+func (p *Peer) SendPLI(ssrc uint32) {
+	p.logger.Info(
+		"Send PLI",
+		slog.String("peer", p.ID),
+		slog.Uint64("ssrc", uint64(ssrc)),
+	)
+
+	_ = p.conn.WriteRTCP([]rtcp.Packet{
+		&rtcp.PictureLossIndication{
+			MediaSSRC: ssrc,
 		},
-	); err != nil {
-		return nil, err
-	}
-
-	return peer, nil
+	})
 }
 
-func (p *Peer) SetRemoteDescription(sdp webrtc.SessionDescription) error {
-	return p.conn.SetRemoteDescription(sdp)
-}
-
-func (p *Peer) CreateAnswer(offer webrtc.SessionDescription) (*webrtc.SessionDescription, error) {
+func (p *Peer) CreateAnswer(offer webrtc.SessionDescription) (webrtc.SessionDescription, error) {
 	if err := p.conn.SetRemoteDescription(offer); err != nil {
-		return nil, err
+		return webrtc.SessionDescription{}, err
 	}
+
+	p.flushCandidateQueue()
 
 	answer, err := p.conn.CreateAnswer(nil)
 	if err != nil {
-		return nil, err
+		return webrtc.SessionDescription{}, err
 	}
 
-	if err := p.conn.SetLocalDescription(answer); err != nil {
-		return nil, err
+	if err = p.conn.SetLocalDescription(answer); err != nil {
+		return webrtc.SessionDescription{}, err
 	}
 
 	<-webrtc.GatheringCompletePromise(p.conn)
 
-	return p.conn.LocalDescription(), nil
+	return answer, nil
+}
+
+func (p *Peer) ValidateAnswer(answer webrtc.SessionDescription) error {
+	return p.conn.SetRemoteDescription(answer)
+}
+
+func (p *Peer) AddICECandidate(ci webrtc.ICECandidateInit) error {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+
+	if p.conn.RemoteDescription() == nil {
+		p.candidateQueue = append(p.candidateQueue, ci)
+		return nil
+	}
+	return p.conn.AddICECandidate(ci)
 }
 
 func (p *Peer) Renegotiate() error {
@@ -117,34 +143,40 @@ func (p *Peer) Renegotiate() error {
 		return err
 	}
 
-	// Wait for ICE gathering to complete so SDP contains candidates
 	<-webrtc.GatheringCompletePromise(p.conn)
 
-	// Send a JSON message over the signaling channel instead of raw SDP
-	msg := map[string]string{
+	msg, err := json.Marshal(map[string]any{
 		"type":     "offer",
-		"roomId":   p.room.id,
-		"memberId": p.id,
+		"roomId":   p.room.ID(),
+		"memberId": p.ID,
 		"sdp":      p.conn.LocalDescription().SDP,
-	}
-	b, err := json.Marshal(msg)
+	})
 	if err != nil {
 		return err
 	}
 
-	return p.ws.WriteMessage(websocket.TextMessage, b)
+	return p.signal.WriteMessage(websocket.TextMessage, msg)
 }
 
-func (p *Peer) SendPLI(ssrc uint32) {
-	p.logger.Info(
-		"Send PLI",
-		slog.String("peer", p.id),
-		slog.Uint64("ssrc", uint64(ssrc)),
-	)
+func (p *Peer) flushCandidateQueue() {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+	for _, c := range p.candidateQueue {
+		_ = p.conn.AddICECandidate(c)
+	}
+	p.candidateQueue = nil
+}
 
-	_ = p.conn.WriteRTCP([]rtcp.Packet{
-		&rtcp.PictureLossIndication{
-			MediaSSRC: ssrc,
-		},
-	})
+func (p *Peer) addInboundTrack(track *webrtc.TrackRemote) {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+
+	p.inTracks[track.ID()] = track
+}
+
+func (p *Peer) addOutboundTrack(track *webrtc.TrackLocalStaticRTP) {
+	p.mux.Lock()
+	defer p.mux.Unlock()
+
+	p.outTracks[track.ID()] = track
 }
