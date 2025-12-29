@@ -1,6 +1,7 @@
 package sfu
 
 import (
+	"log/slog"
 	"sync"
 
 	"github.com/pion/webrtc/v3"
@@ -36,55 +37,78 @@ func (r *Room) GetPeer(id string) (*Peer, bool) {
 	return peer, ok
 }
 
-func (r *Room) AddPeer(signal Signaling, id string) (*Peer, error) {
-	peer, err := NewPeer(r.api, signal, r, id)
+func (r *Room) AddPeer(signal Signaling, offer webrtc.SessionDescription, id string) (*Peer, error) {
+	peer, err := NewPeer(r.api, signal, r, offer, id)
 	if err != nil {
 		return nil, err
 	}
 
 	r.mux.Lock()
-	defer r.mux.Unlock()
 	r.peers[id] = peer
+	forwarders := make([]*TrackForwarder, 0, len(r.forwarders))
+	for _, f := range r.forwarders {
+		forwarders = append(forwarders, f)
+	}
+	r.mux.Unlock()
 
-	for _, forwarder := range r.forwarders {
+	for _, forwarder := range forwarders {
 		local, err := forwarder.AddPeer(id)
 		if err != nil {
+			peer.logger.Error("Failed to add peer to forwarder", slog.String("error", err.Error()))
 			continue
 		}
 
+		peer.addOutboundTrack(local)
 		peer.conn.AddTrack(local)
+
+		//if err := peer.AddTrackAndRenegotiate(local); err != nil {
+		//	peer.logger.Error("Failed to add and renegotiate new peer", slog.String("error", err.Error()))
+		//	continue
+		//}
 	}
 
-	// Don't need to renegotiate here; negotiation is not over yet
-	//if err := peer.Renegotiate(); err != nil {
-	//	return nil, err
-	//}
+	if err := peer.Renegotiate(); err != nil {
+		peer.logger.Error("Failed to renegotiate", slog.String("error", err.Error()))
+		return nil, err
+	}
 
 	return peer, nil
 }
 
 func (r *Room) addIncomingTrack(from *Peer, remote *webrtc.TrackRemote) {
 	r.mux.Lock()
-	defer r.mux.Unlock()
 
-	forwarder := NewTrackForwarder(remote)
+	forwarder := NewTrackForwarder(from, remote)
 	r.forwarders[remote.ID()] = forwarder
 
+	peers := make(map[string]*Peer, len(r.peers))
 	for peerID, peer := range r.peers {
-		if peerID == from.ID {
-			continue
+		if peerID != from.ID {
+			peers[peerID] = peer
 		}
+	}
+	r.mux.Unlock()
 
+	// Запускаем forwarder ДО рекогоциации
+	forwarder.Start()
+
+	// Теперь добавляем треки вне блокировки
+	for peerID, peer := range peers {
 		local, err := forwarder.AddPeer(peerID)
 		if err != nil {
+			from.logger.Error("Failed to add peer to forwarder",
+				slog.String("peerId", peerID),
+				slog.String("error", err.Error()))
 			continue
 		}
 
-		peer.conn.AddTrack(local)
-		if err := peer.Renegotiate(); err != nil {
+		peer.addOutboundTrack(local)
+
+		if err := peer.AddTrackAndRenegotiate(local); err != nil {
+			from.logger.Error("Failed to renegotiate",
+				slog.String("peerId", peerID),
+				slog.String("error", err.Error()))
 			continue
 		}
 	}
-
-	forwarder.Start()
 }

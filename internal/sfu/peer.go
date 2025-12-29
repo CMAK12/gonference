@@ -22,13 +22,14 @@ type Peer struct {
 	room   *Room
 	signal Signaling
 
-	mux            sync.RWMutex
-	inTracks       map[string]*webrtc.TrackRemote
-	outTracks      map[string]*webrtc.TrackLocalStaticRTP
-	candidateQueue []webrtc.ICECandidateInit
+	renegotiationMux sync.Mutex
+	mux              sync.RWMutex
+	inTracks         map[string]*webrtc.TrackRemote
+	outTracks        map[string]*webrtc.TrackLocalStaticRTP
+	candidateQueue   []webrtc.ICECandidateInit
 }
 
-func NewPeer(api *webrtc.API, signal Signaling, room *Room, id string) (*Peer, error) {
+func NewPeer(api *webrtc.API, signal Signaling, room *Room, offer webrtc.SessionDescription, id string) (*Peer, error) {
 	pc, err := api.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{
@@ -79,6 +80,10 @@ func NewPeer(api *webrtc.API, signal Signaling, room *Room, id string) (*Peer, e
 	pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
 		Direction: webrtc.RTPTransceiverDirectionRecvonly,
 	})
+
+	if err := peer.SendAnswer(offer); err != nil {
+		return nil, err
+	}
 
 	return peer, err
 }
@@ -133,6 +138,38 @@ func (p *Peer) AddICECandidate(ci webrtc.ICECandidateInit) error {
 	return p.conn.AddICECandidate(ci)
 }
 
+func (p *Peer) AddTrackAndRenegotiate(track *webrtc.TrackLocalStaticRTP) error {
+	p.renegotiationMux.Lock()
+	defer p.renegotiationMux.Unlock()
+
+	if _, err := p.conn.AddTrack(track); err != nil {
+		return err
+	}
+
+	offer, err := p.conn.CreateOffer(nil)
+	if err != nil {
+		return err
+	}
+
+	if err = p.conn.SetLocalDescription(offer); err != nil {
+		return err
+	}
+
+	<-webrtc.GatheringCompletePromise(p.conn)
+
+	msg, err := json.Marshal(map[string]any{
+		"type":     "offer",
+		"roomId":   p.room.ID(),
+		"memberId": p.ID,
+		"sdp":      p.conn.LocalDescription().SDP,
+	})
+	if err != nil {
+		return err
+	}
+
+	return p.signal.WriteMessage(websocket.TextMessage, msg)
+}
+
 func (p *Peer) Renegotiate() error {
 	offer, err := p.conn.CreateOffer(nil)
 	if err != nil {
@@ -147,6 +184,37 @@ func (p *Peer) Renegotiate() error {
 
 	msg, err := json.Marshal(map[string]any{
 		"type":     "offer",
+		"roomId":   p.room.ID(),
+		"memberId": p.ID,
+		"sdp":      p.conn.LocalDescription().SDP,
+	})
+	if err != nil {
+		return err
+	}
+
+	return p.signal.WriteMessage(websocket.TextMessage, msg)
+}
+
+func (p *Peer) SendAnswer(offer webrtc.SessionDescription) error {
+	if err := p.conn.SetRemoteDescription(offer); err != nil {
+		return err
+	}
+
+	p.flushCandidateQueue()
+
+	answer, err := p.conn.CreateAnswer(nil)
+	if err != nil {
+		return err
+	}
+
+	if err = p.conn.SetLocalDescription(answer); err != nil {
+		return err
+	}
+
+	<-webrtc.GatheringCompletePromise(p.conn)
+
+	msg, err := json.Marshal(map[string]any{
+		"type":     "answer",
 		"roomId":   p.room.ID(),
 		"memberId": p.ID,
 		"sdp":      p.conn.LocalDescription().SDP,

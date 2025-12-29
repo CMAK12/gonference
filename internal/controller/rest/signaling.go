@@ -51,32 +51,37 @@ func (h *Handler) wsHandler(w http.ResponseWriter, r *http.Request) {
 		case "offer":
 			room := h.sfu.GetOrCreateRoom(message.RoomID)
 
-			peer, err := room.AddPeer(conn, message.MemberID)
+			offer := webrtc.SessionDescription{
+				Type: webrtc.SDPTypeOffer,
+				SDP:  message.SDP,
+			}
+
+			_, err := room.AddPeer(conn, offer, message.MemberID)
 			if err != nil {
 				h.logger.Error("Failed to add peer", slog.String("error", err.Error()))
 				return
 			}
 
-			answer, err := peer.CreateAnswer(webrtc.SessionDescription{
-				Type: webrtc.SDPTypeOffer,
-				SDP:  message.SDP,
-			})
-			if err != nil {
-				h.logger.Error("Failed to create answer", slog.String("error", err.Error()))
-				return
-			}
-
-			response, err := json.Marshal(Message{
-				Type:     "answer",
-				RoomID:   message.RoomID,
-				MemberID: message.MemberID,
-				SDP:      answer.SDP,
-			})
-
-			if err := conn.WriteMessage(websocket.TextMessage, response); err != nil {
-				log.Println("write error:", err)
-				return
-			}
+			//answer, err := peer.CreateAnswer(webrtc.SessionDescription{
+			//	Type: webrtc.SDPTypeOffer,
+			//	SDP:  message.SDP,
+			//})
+			//if err != nil {
+			//	h.logger.Error("Failed to create answer", slog.String("error", err.Error()))
+			//	return
+			//}
+			//
+			//response, err := json.Marshal(Message{
+			//	Type:     "answer",
+			//	RoomID:   message.RoomID,
+			//	MemberID: message.MemberID,
+			//	SDP:      answer.SDP,
+			//})
+			//
+			//if err := conn.WriteMessage(websocket.TextMessage, response); err != nil {
+			//	log.Println("write error:", err)
+			//	return
+			//}
 		case "answer":
 			peer, ok := h.sfu.GetOrCreateRoom(message.RoomID).GetPeer(message.MemberID)
 			if !ok {
