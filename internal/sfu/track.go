@@ -1,7 +1,6 @@
 package sfu
 
 import (
-	"fmt"
 	"sync"
 
 	"github.com/pion/webrtc/v3"
@@ -27,13 +26,10 @@ func NewTrackForwarder(peer *Peer, remote *webrtc.TrackRemote) *TrackForwarder {
 }
 
 func (tf *TrackForwarder) AddPeer(id string) (*webrtc.TrackLocalStaticRTP, error) {
-	trackID := fmt.Sprintf("%s-%s", tf.remote.ID(), id)
-	streamID := fmt.Sprintf("from-%s-to-%s", tf.peer.ID, id)
-
 	local, err := webrtc.NewTrackLocalStaticRTP(
 		tf.remote.Codec().RTPCodecCapability,
-		trackID,
-		streamID,
+		tf.remote.ID(),
+		tf.remote.StreamID(),
 	)
 	if err != nil {
 		return nil, err

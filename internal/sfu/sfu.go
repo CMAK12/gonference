@@ -57,3 +57,12 @@ func (s *SFU) RemoveRoom(id string) {
 
 	delete(s.rooms, id)
 }
+
+func (s *SFU) Close() {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	for _, room := range s.rooms {
+		room.Close()
+	}
+}

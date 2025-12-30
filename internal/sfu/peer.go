@@ -15,7 +15,7 @@ type Signaling interface {
 }
 
 type Peer struct {
-	ID string
+	id string
 
 	logger *slog.Logger
 	conn   *webrtc.PeerConnection
@@ -23,9 +23,11 @@ type Peer struct {
 	signal Signaling
 
 	renegotiationMux sync.Mutex
-	mux              sync.RWMutex
+	inboundMux       sync.RWMutex
 	inTracks         map[string]*webrtc.TrackRemote
+	outboundMux      sync.RWMutex
 	outTracks        map[string]*webrtc.TrackLocalStaticRTP
+	candidateMux     sync.RWMutex
 	candidateQueue   []webrtc.ICECandidateInit
 }
 
@@ -35,12 +37,11 @@ func NewPeer(api *webrtc.API, signal Signaling, room *Room, offer webrtc.Session
 			{
 				URLs: []string{"stun:stun.l.google.com:19302"},
 			},
-			{URLs: []string{"turn:turn.example.com:3478"}, Username: "TURN_USER", Credential: "TURN_PASS"},
 		},
 	})
 
 	peer := &Peer{
-		ID:        id,
+		id:        id,
 		logger:    slog.Default().With("peer", id),
 		conn:      pc,
 		room:      room,
@@ -68,18 +69,33 @@ func NewPeer(api *webrtc.API, signal Signaling, room *Room, offer webrtc.Session
 		peer.signal.WriteMessage(websocket.TextMessage, msg)
 	})
 
+	var cleanupOnce sync.Once
+	cleanup := func() {
+		peer.room.RemovePeer(peer.id)
+	}
+
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
 		peer.logger.Info("Connection state change", slog.String("state", state.String()))
+
+		switch state {
+		case webrtc.PeerConnectionStateClosed,
+			webrtc.PeerConnectionStateFailed,
+			webrtc.PeerConnectionStateDisconnected:
+			cleanupOnce.Do(cleanup)
+		}
 	})
 
 	pc.OnTrack(func(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		peer.inTracks[remote.ID()] = remote
+		peer.addInboundTrack(remote)
 		peer.room.addIncomingTrack(peer, remote)
 	})
 
-	pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
+	_, err = pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
 		Direction: webrtc.RTPTransceiverDirectionRecvonly,
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	if err := peer.SendAnswer(offer); err != nil {
 		return nil, err
@@ -88,10 +104,21 @@ func NewPeer(api *webrtc.API, signal Signaling, room *Room, offer webrtc.Session
 	return peer, err
 }
 
+func (p *Peer) ID() string {
+	return p.id
+}
+
+func (p *Peer) Close() error {
+	clear(p.inTracks)
+	clear(p.outTracks)
+
+	return p.conn.Close()
+}
+
 func (p *Peer) SendPLI(ssrc uint32) {
 	p.logger.Info(
 		"Send PLI",
-		slog.String("peer", p.ID),
+		slog.String("peer", p.id),
 		slog.Uint64("ssrc", uint64(ssrc)),
 	)
 
@@ -128,8 +155,8 @@ func (p *Peer) ValidateAnswer(answer webrtc.SessionDescription) error {
 }
 
 func (p *Peer) AddICECandidate(ci webrtc.ICECandidateInit) error {
-	p.mux.Lock()
-	defer p.mux.Unlock()
+	p.candidateMux.Lock()
+	defer p.candidateMux.Unlock()
 
 	if p.conn.RemoteDescription() == nil {
 		p.candidateQueue = append(p.candidateQueue, ci)
@@ -141,6 +168,8 @@ func (p *Peer) AddICECandidate(ci webrtc.ICECandidateInit) error {
 func (p *Peer) AddTrackAndRenegotiate(track *webrtc.TrackLocalStaticRTP) error {
 	p.renegotiationMux.Lock()
 	defer p.renegotiationMux.Unlock()
+
+	p.addOutboundTrack(track)
 
 	if _, err := p.conn.AddTrack(track); err != nil {
 		return err
@@ -227,8 +256,8 @@ func (p *Peer) SendAnswer(offer webrtc.SessionDescription) error {
 }
 
 func (p *Peer) flushCandidateQueue() {
-	p.mux.Lock()
-	defer p.mux.Unlock()
+	p.candidateMux.Lock()
+	defer p.candidateMux.Unlock()
 	for _, c := range p.candidateQueue {
 		_ = p.conn.AddICECandidate(c)
 	}
@@ -236,15 +265,15 @@ func (p *Peer) flushCandidateQueue() {
 }
 
 func (p *Peer) addInboundTrack(track *webrtc.TrackRemote) {
-	p.mux.Lock()
-	defer p.mux.Unlock()
+	p.inboundMux.Lock()
+	defer p.inboundMux.Unlock()
 
 	p.inTracks[track.ID()] = track
 }
 
 func (p *Peer) addOutboundTrack(track *webrtc.TrackLocalStaticRTP) {
-	p.mux.Lock()
-	defer p.mux.Unlock()
+	p.outboundMux.Lock()
+	defer p.outboundMux.Unlock()
 
 	p.outTracks[track.ID()] = track
 }

@@ -59,12 +59,9 @@ func (r *Room) AddPeer(signal Signaling, offer webrtc.SessionDescription, id str
 		}
 
 		peer.addOutboundTrack(local)
-		peer.conn.AddTrack(local)
-
-		//if err := peer.AddTrackAndRenegotiate(local); err != nil {
-		//	peer.logger.Error("Failed to add and renegotiate new peer", slog.String("error", err.Error()))
-		//	continue
-		//}
+		if _, err := peer.conn.AddTrack(local); err != nil {
+			peer.logger.Error("Failed to add track to peer connection", slog.String("error", err.Error()))
+		}
 	}
 
 	if err := peer.Renegotiate(); err != nil {
@@ -75,6 +72,21 @@ func (r *Room) AddPeer(signal Signaling, offer webrtc.SessionDescription, id str
 	return peer, nil
 }
 
+func (r *Room) RemovePeer(id string) {
+	r.mux.Lock()
+	peer, ok := r.peers[id]
+	if !ok {
+		r.mux.Unlock()
+		return
+	}
+	delete(r.peers, id)
+	r.mux.Unlock()
+
+	if err := peer.Close(); err != nil {
+		peer.logger.Error("Failed to close peer", slog.String("error", err.Error()))
+	}
+}
+
 func (r *Room) addIncomingTrack(from *Peer, remote *webrtc.TrackRemote) {
 	r.mux.Lock()
 
@@ -83,16 +95,14 @@ func (r *Room) addIncomingTrack(from *Peer, remote *webrtc.TrackRemote) {
 
 	peers := make(map[string]*Peer, len(r.peers))
 	for peerID, peer := range r.peers {
-		if peerID != from.ID {
+		if peerID != from.ID() {
 			peers[peerID] = peer
 		}
 	}
 	r.mux.Unlock()
 
-	// Запускаем forwarder ДО рекогоциации
 	forwarder.Start()
 
-	// Теперь добавляем треки вне блокировки
 	for peerID, peer := range peers {
 		local, err := forwarder.AddPeer(peerID)
 		if err != nil {
@@ -102,13 +112,26 @@ func (r *Room) addIncomingTrack(from *Peer, remote *webrtc.TrackRemote) {
 			continue
 		}
 
-		peer.addOutboundTrack(local)
-
 		if err := peer.AddTrackAndRenegotiate(local); err != nil {
 			from.logger.Error("Failed to renegotiate",
 				slog.String("peerId", peerID),
 				slog.String("error", err.Error()))
 			continue
 		}
+	}
+}
+
+func (r *Room) Close() {
+	r.mux.Lock()
+	defer r.mux.Unlock()
+
+	for _, peer := range r.peers {
+		if err := peer.Close(); err != nil {
+			peer.logger.Error("Failed to close peer", slog.String("error", err.Error()))
+		}
+	}
+
+	for _, forwarder := range r.forwarders {
+		forwarder.Close()
 	}
 }

@@ -13,6 +13,7 @@ import (
 
 type SFU interface {
 	GetOrCreateRoom(id string) *sfu.Room
+	Close()
 }
 
 type Handler struct {
@@ -60,6 +61,7 @@ func (h *Handler) ListenAndServe() {
 }
 
 func (h *Handler) Close() {
+	h.sfu.Close()
 	if err := h.srv.Close(); err != nil {
 		h.logger.Error("during closing", slog.String("error", err.Error()))
 	}
