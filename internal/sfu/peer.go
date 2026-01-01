@@ -22,13 +22,10 @@ type Peer struct {
 	room   *Room
 	signal Signaling
 
-	renegotiationMux sync.Mutex
-	inboundMux       sync.RWMutex
-	inTracks         map[string]*webrtc.TrackRemote
-	outboundMux      sync.RWMutex
-	outTracks        map[string]*webrtc.TrackLocalStaticRTP
-	candidateMux     sync.RWMutex
-	candidateQueue   []webrtc.ICECandidateInit
+	mux            sync.RWMutex
+	inTracks       map[string]*webrtc.TrackRemote
+	outTracks      map[string]*webrtc.TrackLocalStaticRTP
+	candidateQueue []webrtc.ICECandidateInit
 }
 
 func NewPeer(api *webrtc.API, signal Signaling, room *Room, offer webrtc.SessionDescription, id string) (*Peer, error) {
@@ -155,8 +152,8 @@ func (p *Peer) ValidateAnswer(answer webrtc.SessionDescription) error {
 }
 
 func (p *Peer) AddICECandidate(ci webrtc.ICECandidateInit) error {
-	p.candidateMux.Lock()
-	defer p.candidateMux.Unlock()
+	p.mux.Lock()
+	defer p.mux.Unlock()
 
 	if p.conn.RemoteDescription() == nil {
 		p.candidateQueue = append(p.candidateQueue, ci)
@@ -166,37 +163,22 @@ func (p *Peer) AddICECandidate(ci webrtc.ICECandidateInit) error {
 }
 
 func (p *Peer) AddTrackAndRenegotiate(track *webrtc.TrackLocalStaticRTP) error {
-	p.renegotiationMux.Lock()
-	defer p.renegotiationMux.Unlock()
+	p.mux.Lock()
 
-	p.addOutboundTrack(track)
+	if _, exists := p.outTracks[track.ID()]; exists {
+		p.mux.Unlock()
+		p.logger.Warn("Track already exists", slog.String("track", track.ID()))
+		return nil
+	}
+
+	p.outTracks[track.ID()] = track
+	p.mux.Unlock()
 
 	if _, err := p.conn.AddTrack(track); err != nil {
 		return err
 	}
 
-	offer, err := p.conn.CreateOffer(nil)
-	if err != nil {
-		return err
-	}
-
-	if err = p.conn.SetLocalDescription(offer); err != nil {
-		return err
-	}
-
-	<-webrtc.GatheringCompletePromise(p.conn)
-
-	msg, err := json.Marshal(map[string]any{
-		"type":     "offer",
-		"roomId":   p.room.ID(),
-		"memberId": p.ID,
-		"sdp":      p.conn.LocalDescription().SDP,
-	})
-	if err != nil {
-		return err
-	}
-
-	return p.signal.WriteMessage(websocket.TextMessage, msg)
+	return p.Renegotiate()
 }
 
 func (p *Peer) Renegotiate() error {
@@ -214,7 +196,7 @@ func (p *Peer) Renegotiate() error {
 	msg, err := json.Marshal(map[string]any{
 		"type":     "offer",
 		"roomId":   p.room.ID(),
-		"memberId": p.ID,
+		"memberId": p.id,
 		"sdp":      p.conn.LocalDescription().SDP,
 	})
 	if err != nil {
@@ -245,7 +227,7 @@ func (p *Peer) SendAnswer(offer webrtc.SessionDescription) error {
 	msg, err := json.Marshal(map[string]any{
 		"type":     "answer",
 		"roomId":   p.room.ID(),
-		"memberId": p.ID,
+		"memberId": p.id,
 		"sdp":      p.conn.LocalDescription().SDP,
 	})
 	if err != nil {
@@ -256,8 +238,8 @@ func (p *Peer) SendAnswer(offer webrtc.SessionDescription) error {
 }
 
 func (p *Peer) flushCandidateQueue() {
-	p.candidateMux.Lock()
-	defer p.candidateMux.Unlock()
+	p.mux.Lock()
+	defer p.mux.Unlock()
 	for _, c := range p.candidateQueue {
 		_ = p.conn.AddICECandidate(c)
 	}
@@ -265,15 +247,15 @@ func (p *Peer) flushCandidateQueue() {
 }
 
 func (p *Peer) addInboundTrack(track *webrtc.TrackRemote) {
-	p.inboundMux.Lock()
-	defer p.inboundMux.Unlock()
+	p.mux.Lock()
+	defer p.mux.Unlock()
 
 	p.inTracks[track.ID()] = track
 }
 
 func (p *Peer) addOutboundTrack(track *webrtc.TrackLocalStaticRTP) {
-	p.outboundMux.Lock()
-	defer p.outboundMux.Unlock()
+	p.mux.Lock()
+	defer p.mux.Unlock()
 
 	p.outTracks[track.ID()] = track
 }
