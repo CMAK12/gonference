@@ -3,32 +3,27 @@ package rest
 import (
 	"errors"
 	"fmt"
-	"gonference/internal/sfu"
+	"gonference/internal/usecase"
 	"log/slog"
 	"net/http"
 
 	"gonference/internal/config"
-	"gonference/internal/controller/middleware"
+	ws "gonference/internal/controller/websocket"
 )
-
-type SFU interface {
-	GetOrCreateRoom(id string) *sfu.Room
-	Close()
-}
 
 type Handler struct {
 	logger *slog.Logger
 	srv    *http.Server
 
-	sfu SFU
+	uc *usecase.UseCase
 }
 
-func NewHandler(cfg config.REST, sfu SFU) *Handler {
+func NewHandler(cfg config.REST, uc *usecase.UseCase) *Handler {
 	logger := slog.Default().With(slog.String("component", "rest"))
 
 	mux := http.NewServeMux()
-	handler := middleware.WithLogging(mux, logger)
-	handler = middleware.WithCORS(handler)
+	handler := withLogging(mux, logger)
+	handler = withCORS(handler)
 
 	h := &Handler{
 		logger: logger,
@@ -36,13 +31,14 @@ func NewHandler(cfg config.REST, sfu SFU) *Handler {
 			Addr:    fmt.Sprintf(":%d", cfg.Port),
 			Handler: handler,
 		},
-		sfu: sfu,
+		uc: uc,
 	}
 
 	mux.HandleFunc("GET /whep", h.getWHEP)
 	mux.HandleFunc("POST /whep", h.handleWHEP)
 
-	mux.HandleFunc("GET /ws", h.wsHandler)
+	wsHandler := ws.NewHandler(uc.SFU, uc.Signaling)
+	mux.HandleFunc("GET /ws", wsHandler.Handle)
 
 	mux.HandleFunc("POST /conference/create", h.createConference)
 	mux.HandleFunc("GET /conference", h.listConferences)
@@ -61,7 +57,7 @@ func (h *Handler) ListenAndServe() {
 }
 
 func (h *Handler) Close() {
-	h.sfu.Close()
+	h.uc.SFU.Close()
 	if err := h.srv.Close(); err != nil {
 		h.logger.Error("during closing", slog.String("error", err.Error()))
 	}

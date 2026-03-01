@@ -1,7 +1,6 @@
 package server
 
 import (
-	"gonference/internal/sfu"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -10,17 +9,18 @@ import (
 	"gonference/internal/config"
 	"gonference/internal/controller/admin_panel"
 	"gonference/internal/controller/rest"
+	"gonference/internal/usecase"
 )
 
 func Run() {
 	cfg := config.MustLoad()
 
-	sfu, err := sfu.New()
+	uc, err := usecase.NewUseCase()
 	if err != nil {
-		slog.Error("Failed to create SFU", slog.String("error", err.Error()))
+		slog.Error("Failed to create UseCase", slog.String("error", err.Error()))
 	}
 
-	rest := rest.NewHandler(cfg.REST, sfu)
+	rest := rest.NewHandler(cfg.REST, uc)
 	go rest.ListenAndServe()
 
 	ap := admin_panel.NewHandler(cfg.AdminPanel)

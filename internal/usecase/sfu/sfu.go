@@ -38,6 +38,14 @@ func New() (*SFU, error) {
 	}, nil
 }
 
+func (s *SFU) GetRoom(id string) (*Room, bool) {
+	s.mux.RLock()
+	defer s.mux.RUnlock()
+
+	room, ok := s.rooms[id]
+	return room, ok
+}
+
 func (s *SFU) GetOrCreateRoom(id string) *Room {
 	s.mux.Lock()
 	defer s.mux.Unlock()

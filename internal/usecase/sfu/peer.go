@@ -1,26 +1,28 @@
 package sfu
 
 import (
-	"encoding/json"
+	"errors"
+	"gonference/internal/entity"
 	"log/slog"
+	"net"
 	"sync"
 
-	"github.com/gorilla/websocket"
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v3"
 )
 
 type Signaling interface {
-	WriteMessage(msgType int, payload []byte) error
+	WriteMessage(msg entity.Message) error
+	Close() error
 }
 
 type Peer struct {
 	id string
 
-	logger *slog.Logger
-	conn   *webrtc.PeerConnection
-	room   *Room
-	signal Signaling
+	logger    *slog.Logger
+	conn      *webrtc.PeerConnection
+	room      *Room
+	signaling Signaling
 
 	mux            sync.RWMutex
 	inTracks       map[string]*webrtc.TrackRemote
@@ -42,7 +44,7 @@ func NewPeer(api *webrtc.API, signal Signaling, room *Room, offer webrtc.Session
 		logger:    slog.Default().With("peer", id),
 		conn:      pc,
 		room:      room,
-		signal:    signal,
+		signaling: signal,
 		inTracks:  make(map[string]*webrtc.TrackRemote),
 		outTracks: make(map[string]*webrtc.TrackLocalStaticRTP),
 	}
@@ -52,18 +54,18 @@ func NewPeer(api *webrtc.API, signal Signaling, room *Room, offer webrtc.Session
 			return
 		}
 
-		msg, err := json.Marshal(map[string]any{
-			"type":      "candidate",
-			"roomId":    room.ID(),
-			"memberId":  id,
-			"candidate": c.ToJSON(),
-		})
-		if err != nil {
-			peer.logger.Error("Failed to marshal ICE candidate", slog.String("error", err.Error()))
-			return
+		candidate := c.ToJSON()
+
+		msg := entity.Message{
+			Type:      entity.TypeCandidate,
+			RoomID:    room.ID(),
+			MemberID:  id,
+			Candidate: &candidate,
 		}
 
-		peer.signal.WriteMessage(websocket.TextMessage, msg)
+		if err := signal.WriteMessage(msg); err != nil {
+			peer.logger.Error("Failed to send ICE candidate", slog.String("error", err.Error()))
+		}
 	})
 
 	var cleanupOnce sync.Once
@@ -109,7 +111,15 @@ func (p *Peer) Close() error {
 	clear(p.inTracks)
 	clear(p.outTracks)
 
-	return p.conn.Close()
+	if err := p.conn.Close(); err != nil {
+		if errors.Is(err, net.ErrClosed) {
+			p.logger.Debug("Peer connection already closed")
+		} else {
+			p.logger.Error("Failed to close peer connection", slog.String("error", err.Error()))
+		}
+	}
+
+	return nil
 }
 
 func (p *Peer) SendPLI(ssrc uint32) {
@@ -193,17 +203,14 @@ func (p *Peer) Renegotiate() error {
 
 	<-webrtc.GatheringCompletePromise(p.conn)
 
-	msg, err := json.Marshal(map[string]any{
-		"type":     "offer",
-		"roomId":   p.room.ID(),
-		"memberId": p.id,
-		"sdp":      p.conn.LocalDescription().SDP,
-	})
-	if err != nil {
-		return err
+	msg := entity.Message{
+		Type:     entity.TypeOffer,
+		RoomID:   p.room.ID(),
+		MemberID: p.id,
+		SDP:      &p.conn.LocalDescription().SDP,
 	}
 
-	return p.signal.WriteMessage(websocket.TextMessage, msg)
+	return p.signaling.WriteMessage(msg)
 }
 
 func (p *Peer) SendAnswer(offer webrtc.SessionDescription) error {
@@ -224,17 +231,14 @@ func (p *Peer) SendAnswer(offer webrtc.SessionDescription) error {
 
 	<-webrtc.GatheringCompletePromise(p.conn)
 
-	msg, err := json.Marshal(map[string]any{
-		"type":     "answer",
-		"roomId":   p.room.ID(),
-		"memberId": p.id,
-		"sdp":      p.conn.LocalDescription().SDP,
-	})
-	if err != nil {
-		return err
+	msg := entity.Message{
+		Type:     entity.TypeAnswer,
+		RoomID:   p.room.ID(),
+		MemberID: p.id,
+		SDP:      &p.conn.LocalDescription().SDP,
 	}
 
-	return p.signal.WriteMessage(websocket.TextMessage, msg)
+	return p.signaling.WriteMessage(msg)
 }
 
 func (p *Peer) flushCandidateQueue() {
