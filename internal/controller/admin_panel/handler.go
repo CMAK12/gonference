@@ -11,6 +11,9 @@ import (
 	"gonference/internal/config"
 )
 
+//go:embed static/*
+var statisFS embed.FS
+
 //go:embed templates
 var templatesFs embed.FS
 
@@ -30,6 +33,7 @@ func NewHandler(cfg config.AdminPanel) *AdminPanelHandler {
 		logger: logger,
 		srv:    &http.Server{Addr: fmt.Sprintf(":%d", cfg.Port), Handler: mux}}
 
+	mux.Handle("/static/", http.FileServer(http.FS(statisFS)))
 	mux.HandleFunc("/", handler.getIndex)
 	mux.HandleFunc("/conference/{id}", handler.getConference)
 
