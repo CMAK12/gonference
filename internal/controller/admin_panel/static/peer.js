@@ -1,3 +1,5 @@
+import {MessageType} from "./signaling.js";
+
 export function createPeer(ws, roomId, peerId, createVideoElement) {
     const pc = new RTCPeerConnection({
         iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
@@ -30,7 +32,7 @@ export function createPeer(ws, roomId, peerId, createVideoElement) {
         if (!event.candidate) return;
 
         ws.send(JSON.stringify({
-            type: "candidate",
+            type: MessageType.CANDIDATE,
             roomId: roomId,
             memberId: peerId,
             candidate: event.candidate

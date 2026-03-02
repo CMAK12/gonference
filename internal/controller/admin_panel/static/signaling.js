@@ -1,14 +1,38 @@
+export const MessageType = Object.freeze({
+    OFFER: "offer",
+    ANSWER: "answer",
+    CANDIDATE: "candidate",
+    LEAVE: "leave"
+});
+
 export function setupSignaling(ws, peer, roomId, peerId) {
     ws.onmessage = async (event) => {
         console.log(event.data);
         const msg = JSON.parse(event.data);
 
         switch (msg.type) {
-            case "answer":
+            case MessageType.OFFER:
+                await peer.pc.setRemoteDescription({
+                    type: MessageType.OFFER,
+                    sdp: msg.sdp
+                });
+
+                const answer = await peer.pc.createAnswer();
+                await peer.pc.setLocalDescription(answer);
+
+                ws.send(JSON.stringify({
+                    type: MessageType.ANSWER,
+                    roomId: roomId,
+                    memberId: peerId,
+                    sdp: peer.pc.localDescription.sdp
+                }));
+                break;
+
+            case MessageType.ANSWER:
                 console.log('received answer from server');
 
                 await peer.pc.setRemoteDescription({
-                    type: "answer",
+                    type: MessageType.ANSWER,
                     sdp: msg.sdp
                 });
 
@@ -23,24 +47,7 @@ export function setupSignaling(ws, peer, roomId, peerId) {
                 peer.clearPending();
                 break;
 
-            case "offer":
-                await peer.pc.setRemoteDescription({
-                    type: "offer",
-                    sdp: msg.sdp
-                });
-
-                const answer = await peer.pc.createAnswer();
-                await peer.pc.setLocalDescription(answer);
-
-                ws.send(JSON.stringify({
-                    type: "answer",
-                    roomId: roomId,
-                    memberId: peerId,
-                    sdp: peer.pc.localDescription.sdp
-                }));
-                break;
-
-            case "candidate":
+            case MessageType.CANDIDATE:
                 const cand = msg.candidate;
 
                 if (!peer.pc.remoteDescription) {
@@ -54,6 +61,9 @@ export function setupSignaling(ws, peer, roomId, peerId) {
                     console.warn('failed to add candidate', e);
                 }
                 break;
+
+            case MessageType.LEAVE:
+
         }
     };
 }
