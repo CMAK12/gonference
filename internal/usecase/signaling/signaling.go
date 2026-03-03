@@ -81,19 +81,19 @@ func (s *Signaling) HandleCandidate(message entity.Message) error {
 	return nil
 }
 
-func (s *Signaling) HandleBye(message entity.Message) error {
+func (s *Signaling) HandleLeave(message entity.Message) error {
 	room, ok := s.sfu.GetRoom(message.RoomID)
 	if !ok {
-		return fmt.Errorf("signaling.HandleBye: room not found: %s", message.RoomID)
+		return fmt.Errorf("signaling.HandleLeave: room not found: %s", message.RoomID)
 	}
 
 	peer, ok := room.GetPeer(message.MemberID)
 	if !ok {
-		return fmt.Errorf("signaling.HandleBye: peer not found: %s", message.MemberID)
+		return fmt.Errorf("signaling.HandleLeave: peer not found: %s", message.MemberID)
 	}
 
 	if err := peer.Close(); err != nil {
-		return fmt.Errorf("signaling.HandleBye: failed to close peer connection: %v", err)
+		return fmt.Errorf("signaling.HandleLeave: failed to close peer connection: %v", err)
 	}
 	return nil
 }

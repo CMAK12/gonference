@@ -43,8 +43,9 @@ func (h *Handler) Handle(w http.ResponseWriter, r *http.Request) {
 				h.logger.Error("Failed to handle candidate", slog.String("error", err.Error()))
 			}
 		case entity.TypeLeave:
-			//if err := h.signaling.HandleLeave(msg); err != nil {
-			//}
+			if err := h.signaling.HandleLeave(msg); err != nil {
+				h.logger.Error("Failed to handle leave", slog.String("error", err.Error()))
+			}
 		default:
 			h.logger.Error("Unknown message type", slog.String("type", string(msg.Type)))
 			continue

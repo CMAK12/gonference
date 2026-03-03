@@ -29,7 +29,7 @@ func (tf *TrackForwarder) AddPeer(id string) (*webrtc.TrackLocalStaticRTP, error
 	local, err := webrtc.NewTrackLocalStaticRTP(
 		tf.remote.Codec().RTPCodecCapability,
 		tf.remote.ID(),
-		tf.remote.StreamID(),
+		tf.peer.id,
 	)
 	if err != nil {
 		return nil, err

@@ -1,3 +1,5 @@
+import {removeVideoElement} from "./video_manager.js";
+
 export const MessageType = Object.freeze({
     OFFER: "offer",
     ANSWER: "answer",
@@ -63,7 +65,10 @@ export function setupSignaling(ws, peer, roomId, peerId) {
                 break;
 
             case MessageType.LEAVE:
+                console.log("peer left:", msg.memberId);
 
+                removeVideoElement(msg.memberId)
+                break;
         }
     };
 }

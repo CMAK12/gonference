@@ -37,3 +37,15 @@ export function createVideoElement(stream, muted = false) {
     container.appendChild(video);
     updateLayout();
 }
+
+export function removeVideoElement(peerId) {
+    const video = document.getElementById(`video-${peerId}`);
+    if (!video) {
+        console.warn("Video not found for peer: ", peerId);
+        return;
+    }
+
+    video.srcObject = null;
+    video.remove();
+    updateLayout();
+}

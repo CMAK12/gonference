@@ -16,6 +16,7 @@ type (
 		HandleOffer(message entity.Message, transport signaling.Transport) error
 		HandleAnswer(message entity.Message) error
 		HandleCandidate(message entity.Message) error
+		HandleLeave(message entity.Message) error
 	}
 )
 

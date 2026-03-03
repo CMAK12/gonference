@@ -1,6 +1,7 @@
 package sfu
 
 import (
+	"gonference/internal/entity"
 	"log/slog"
 	"sync"
 
@@ -80,10 +81,27 @@ func (r *Room) RemovePeer(id string) {
 		return
 	}
 	delete(r.peers, id)
+
+	otherPeers := make([]*Peer, 0, len(r.peers))
+	for _, p := range r.peers {
+		otherPeers = append(otherPeers, p)
+	}
 	r.mux.Unlock()
 
 	if err := peer.Close(); err != nil {
 		peer.logger.Error("Failed to close peer", slog.String("error", err.Error()))
+	}
+
+	leaveMsg := entity.Message{
+		Type:     entity.TypeLeave,
+		RoomID:   r.id,
+		MemberID: id,
+	}
+
+	for _, p := range otherPeers {
+		if err := p.signaling.WriteMessage(leaveMsg); err != nil {
+			p.logger.Error("Failed to send leave message", slog.String("error", err.Error()))
+		}
 	}
 }
 
