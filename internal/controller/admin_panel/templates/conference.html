@@ -3,97 +3,191 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Join Conference</title>
+    <title>{{.RoomID}} — {{.Username}}</title>
     <style>
-        .grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 10px;
-        }
-        video {
+        html, body {
+            margin: 0;
+            padding: 0;
+            height: 100%;
             width: 100%;
-            background: black;
+            background: #0b0b0d;
+            color: #f5f5f7;
+            font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
         }
+
+        #videos {
+            display: grid;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 96px;
+
+            gap: 8px;
+            padding: 8px;
+            box-sizing: border-box;
+
+            transition:
+                    grid-template-columns 300ms ease,
+                    grid-template-rows 300ms ease;
+        }
+
+        #videos > .tile {
+            position: relative;
+            width: 100%;
+            height: 100%;
+            min-width: 0;
+            min-height: 0;
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            transition: opacity 250ms ease, transform 250ms ease;
+        }
+
+        #videos > .tile > video {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+        }
+
+        #videos > .tile > .name {
+            position: absolute;
+            left: 10px;
+            bottom: 10px;
+            padding: 4px 10px;
+            background: rgba(0, 0, 0, 0.55);
+            color: #fff;
+            font-size: 13px;
+            line-height: 1;
+            border-radius: 999px;
+            pointer-events: none;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            max-width: calc(100% - 20px);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .controlbar {
+            position: fixed;
+            bottom: 16px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 12px;
+            padding: 8px 12px;
+            background: rgba(20, 20, 22, 0.75);
+            border-radius: 999px;
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            z-index: 10;
+        }
+
+        .controlbar button {
+            width: 48px;
+            height: 48px;
+            border-radius: 50%;
+            border: 0;
+            background: #2a2a2e;
+            color: #f5f5f7;
+            font-size: 20px;
+            line-height: 1;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 150ms ease, transform 150ms ease;
+        }
+
+        .controlbar button:hover { background: #3a3a3f; }
+        .controlbar button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .controlbar button.off {
+            background: #c5302b;
+            color: #fff;
+        }
+        .controlbar button.off:hover { background: #d8403b; }
+
+        .controlbar button.leave {
+            background: #c5302b;
+            color: #fff;
+        }
+        .controlbar button.leave:hover { background: #d8403b; }
+
+        #left-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(0, 0, 0, 0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+        #left-overlay[hidden] { display: none; }
+
+        #left-overlay .card {
+            background: #1b1b1f;
+            border-radius: 12px;
+            padding: 32px 40px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+        }
+
+        #left-overlay h1 {
+            margin: 0 0 24px;
+            font-size: 22px;
+            font-weight: 500;
+        }
+
+        #left-overlay .actions {
+            display: flex;
+            gap: 12px;
+            justify-content: center;
+        }
+
+        #left-overlay button {
+            padding: 10px 18px;
+            border: 0;
+            border-radius: 8px;
+            font: inherit;
+            cursor: pointer;
+        }
+
+        #btn-rejoin {
+            background: #0a84ff;
+            color: #fff;
+        }
+        #btn-rejoin:hover { background: #2a94ff; }
+
+        #btn-lobby {
+            background: #2a2a2e;
+            color: #f5f5f7;
+        }
+        #btn-lobby:hover { background: #3a3a3f; }
     </style>
 </head>
-<body>
-<div id="videos" class="grid"></div>
+<body data-room-id="{{.RoomID}}" data-username="{{.Username}}" data-rest-port="{{.RestPort}}">
 
-<script>
-    const roomId = "room1"
-    const peerId = crypto.randomUUID()
-    console.log(peerId)
+<div id="videos"></div>
 
-    const videos = document.getElementById('videos');
+<div class="controlbar">
+    <button id="btn-mic" type="button" title="Toggle microphone" aria-label="Toggle microphone">🎤</button>
+    <button id="btn-cam" type="button" title="Toggle camera" aria-label="Toggle camera">🎥</button>
+    <button id="btn-leave" class="leave" type="button" title="Leave call" aria-label="Leave call">⎋</button>
+</div>
 
-    const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
-    })
+<div id="left-overlay" hidden>
+    <div class="card">
+        <h1>You left the call</h1>
+        <div class="actions">
+            <button id="btn-rejoin" type="button">Rejoin</button>
+            <button id="btn-lobby" type="button">Back to lobby</button>
+        </div>
+    </div>
+</div>
 
-    pc.ontrack = (event) => {
-        const stream = event.streams[0];
-        console.log(stream.id)
-        if (!stream) return;
-
-        if (stream.id === peerId) return;
-
-        createVideoElement(stream);
-    }
-
-    (async () => {
-        await initLocalMedia();
-        await negotiate();
-    })();
-
-    async function initLocalMedia() {
-        const stream = await navigator.mediaDevices.getUserMedia({
-            video: true,
-            audio: false
-        });
-
-        createVideoElement(stream, true);
-
-        stream.getTracks().forEach(track => {
-            pc.addTrack(track, stream);
-        });
-    }
-
-    async function negotiate() {
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-
-        const response = await fetch(`http://localhost:8080/whep`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                roomId: roomId,
-                memberId: peerId,
-                sdp: offer.sdp
-            })
-        });
-
-        const answer = await response.text();
-
-        await pc.setRemoteDescription({
-            type: "answer",
-            sdp: answer
-        });
-    }
-
-    function createVideoElement(stream, muted = false) {
-        const video = document.createElement('video');
-        video.id = `video-${stream.id}`;
-        video.srcObject = stream;
-        video.autoplay = true;
-        video.playsInline = true;
-        video.muted = muted;
-
-        videos.appendChild(video);
-
-        video.onloadedmetadata = () => {
-            video.play().catch(console.error);
-        };
-    }
-</script>
+<script type="module" src="/static/app.js"></script>
 </body>
 </html>

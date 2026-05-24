@@ -56,3 +56,15 @@ var videoCodecs = []webrtc.RTPCodecParameters{
 	//	PayloadType: 101,
 	//},
 }
+
+var audioCodecs = []webrtc.RTPCodecParameters{
+	{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType:    webrtc.MimeTypeOpus,
+			ClockRate:   48000,
+			Channels:    2,
+			SDPFmtpLine: "minptime=10;useinbandfec=1",
+		},
+		PayloadType: webrtc.PayloadType(OPUS),
+	},
+}

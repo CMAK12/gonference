@@ -23,7 +23,7 @@ func Run() {
 	rest := rest.NewHandler(cfg.REST, uc)
 	go rest.ListenAndServe()
 
-	ap := admin_panel.NewHandler(cfg.AdminPanel)
+	ap := admin_panel.NewHandler(cfg, uc)
 	go ap.ListenAndServe()
 
 	sigChan := make(chan os.Signal, 1)

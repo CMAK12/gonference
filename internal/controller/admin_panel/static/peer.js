@@ -25,7 +25,7 @@ export function createPeer(ws, roomId, peerId, createVideoElement) {
         if (!stream) return;
 
         console.log('creating video for remote stream:', stream.id);
-        createVideoElement(stream);
+        createVideoElement(stream, { name: stream.id });
     };
 
     pc.onicecandidate = (event) => {

@@ -38,6 +38,9 @@ func NewPeer(api *webrtc.API, signal Signaling, room *Room, offer webrtc.Session
 			},
 		},
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	peer := &Peer{
 		id:        id,
@@ -90,6 +93,13 @@ func NewPeer(api *webrtc.API, signal Signaling, room *Room, offer webrtc.Session
 	})
 
 	_, err = pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
+		Direction: webrtc.RTPTransceiverDirectionRecvonly,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = pc.AddTransceiverFromKind(webrtc.RTPCodecTypeAudio, webrtc.RTPTransceiverInit{
 		Direction: webrtc.RTPTransceiverDirectionRecvonly,
 	})
 	if err != nil {

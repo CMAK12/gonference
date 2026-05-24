@@ -21,6 +21,11 @@ func New() (*SFU, error) {
 			return nil, err
 		}
 	}
+	for _, codec := range audioCodecs {
+		if err := mediaEngine.RegisterCodec(codec, webrtc.RTPCodecTypeAudio); err != nil {
+			return nil, err
+		}
+	}
 
 	interceptorRegistry := &interceptor.Registry{}
 	if err := webrtc.RegisterDefaultInterceptors(mediaEngine, interceptorRegistry); err != nil {

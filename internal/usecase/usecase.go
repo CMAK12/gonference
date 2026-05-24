@@ -1,13 +1,15 @@
 package usecase
 
 import (
+	"gonference/internal/usecase/conference"
 	"gonference/internal/usecase/sfu"
 	"gonference/internal/usecase/signaling"
 )
 
 type UseCase struct {
-	Signaling *signaling.Signaling
-	SFU       *sfu.SFU
+	Signaling  *signaling.Signaling
+	SFU        *sfu.SFU
+	Conference *conference.Registry
 }
 
 func NewUseCase() (*UseCase, error) {
@@ -18,7 +20,8 @@ func NewUseCase() (*UseCase, error) {
 	s := signaling.New(sfu)
 
 	return &UseCase{
-		Signaling: s,
-		SFU:       sfu,
+		Signaling:  s,
+		SFU:        sfu,
+		Conference: conference.New(),
 	}, nil
 }

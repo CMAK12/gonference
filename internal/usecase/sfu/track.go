@@ -39,7 +39,9 @@ func (tf *TrackForwarder) AddPeer(id string) (*webrtc.TrackLocalStaticRTP, error
 	tf.locals[id] = local
 	tf.mux.Unlock()
 
-	go tf.peer.SendPLI(uint32(tf.remote.SSRC()))
+	if tf.remote.Kind() == webrtc.RTPCodecTypeVideo {
+		go tf.peer.SendPLI(uint32(tf.remote.SSRC()))
+	}
 
 	return local, nil
 }
