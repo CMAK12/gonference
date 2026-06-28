@@ -8,6 +8,7 @@ import (
 	impb "github.com/CMAK12/gonference/internal/gen/streaming/v1"
 	"github.com/CMAK12/gonference/internal/streaming/entity"
 	"github.com/CMAK12/gonference/internal/streaming/entity/mapper"
+	"google.golang.org/grpc"
 )
 
 var _ impb.SignalingServer = (*SignalingServer)(nil)
@@ -24,11 +25,15 @@ type SignalingServer struct {
 	signaling Signaling
 }
 
-func NewSignalingServer(s Signaling) *SignalingServer {
-	return &SignalingServer{
+func registerSignalingServer(server grpc.ServiceRegistrar, s Signaling) *SignalingServer {
+	ss := &SignalingServer{
 		log:       slog.Default().With(slog.String("component", "signaling-grpc")),
 		signaling: s,
 	}
+
+	impb.RegisterSignalingServer(server, ss)
+
+	return ss
 }
 
 // Connect bootstraps a peer: it accepts the client's offer and returns the SFU's

@@ -22,6 +22,12 @@ func New() (*SFU, error) {
 		}
 	}
 
+	for _, codec := range audioCodecs {
+		if err := mediaEngine.RegisterCodec(codec, webrtc.RTPCodecTypeAudio); err != nil {
+			return nil, err
+		}
+	}
+
 	interceptorRegistry := &interceptor.Registry{}
 	if err := webrtc.RegisterDefaultInterceptors(mediaEngine, interceptorRegistry); err != nil {
 		return nil, err
@@ -42,16 +48,16 @@ func (s *SFU) GetRoom(id string) (*Room, bool) {
 	s.mux.RLock()
 	defer s.mux.RUnlock()
 
-	room, ok := s.rooms[id]
-	return room, ok
+	room, exists := s.rooms[id]
+	return room, exists
 }
 
 func (s *SFU) GetOrCreateRoom(id string) *Room {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	room, ok := s.rooms[id]
-	if !ok {
+	room, exists := s.rooms[id]
+	if !exists {
 		room = NewRoom(s.api, id)
 		s.rooms[id] = room
 	}

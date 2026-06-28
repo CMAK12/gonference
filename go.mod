@@ -7,7 +7,7 @@ require (
 	github.com/pion/interceptor v0.1.29
 	github.com/pion/rtcp v1.2.14
 	github.com/pion/webrtc/v3 v3.3.6
-	google.golang.org/grpc v1.79.1
+	google.golang.org/grpc v1.79.3
 	google.golang.org/protobuf v1.36.10
 )
 
