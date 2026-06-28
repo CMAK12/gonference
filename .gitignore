@@ -1,3 +1,7 @@
 *.exe
 .idea/
 .claude
+
+# frontend
+node_modules/
+dist/

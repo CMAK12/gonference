@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -9,12 +10,19 @@ import (
 	"github.com/CMAK12/gonference/internal/gateway/config"
 )
 
-type Handler struct {
-	logger *slog.Logger
-	srv    *http.Server
+// Signaling forwards a publisher's SDP offer to the streaming service and
+// returns the answer SDP. It is the only dependency the WHIP endpoint needs.
+type Signaling interface {
+	Connect(ctx context.Context, roomID, memberID, offer string) (string, error)
 }
 
-func NewHandler(cfg config.REST) *Handler {
+type Handler struct {
+	logger    *slog.Logger
+	signaling Signaling
+	srv       *http.Server
+}
+
+func NewHandler(cfg config.REST, signaling Signaling) *Handler {
 	logger := slog.Default().With(slog.String("component", "rest"))
 
 	mux := http.NewServeMux()
@@ -22,20 +30,15 @@ func NewHandler(cfg config.REST) *Handler {
 	handler = withCORS(handler)
 
 	h := &Handler{
-		logger: logger,
+		logger:    logger,
+		signaling: signaling,
 		srv: &http.Server{
 			Addr:    fmt.Sprintf(":%d", cfg.Port),
 			Handler: handler,
 		},
 	}
 
-	mux.HandleFunc("GET /whep", h.getWHEP)
-	mux.HandleFunc("POST /whep", h.handleWHEP)
-
-	mux.HandleFunc("POST /conference/create", h.createConference)
-	mux.HandleFunc("GET /conference", h.listConferences)
-	mux.HandleFunc("GET /conference/{id}/join", h.joinConference)
-	mux.HandleFunc("DELETE /conference/{id}/leave", h.removeMember)
+	mux.HandleFunc("POST /whip", h.handleWHIP)
 
 	return h
 }

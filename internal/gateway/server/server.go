@@ -6,7 +6,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/CMAK12/gonference/internal/gateway/admin"
+	streamingclient "github.com/CMAK12/gonference/infra/client/streaming"
 	"github.com/CMAK12/gonference/internal/gateway/config"
 	"github.com/CMAK12/gonference/internal/gateway/rest"
 )
@@ -14,11 +14,14 @@ import (
 func Run() {
 	cfg := config.MustLoad()
 
-	api := rest.NewHandler(cfg.REST)
-	go api.ListenAndServe()
+	streaming, err := streamingclient.New(cfg.Streaming.Addr())
+	if err != nil {
+		slog.Error("Failed to create streaming client", slog.String("error", err.Error()))
+		os.Exit(1)
+	}
 
-	ap := admin.NewHandler(cfg.Admin)
-	go ap.ListenAndServe()
+	api := rest.NewHandler(cfg.REST, streaming)
+	go api.ListenAndServe()
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
@@ -27,5 +30,7 @@ func Run() {
 	slog.Info("Execution interrupted", slog.String("signal", sig.String()))
 
 	api.Close()
-	ap.Close()
+	if err := streaming.Close(); err != nil {
+		slog.Error("Failed to close streaming client", slog.String("error", err.Error()))
+	}
 }

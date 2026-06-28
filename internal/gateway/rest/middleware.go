@@ -26,6 +26,7 @@ func withCORS(handler http.Handler) http.Handler {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "*")
+		w.Header().Set("Access-Control-Expose-Headers", "Location")
 
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusOK)

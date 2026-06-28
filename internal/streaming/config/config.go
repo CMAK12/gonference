@@ -5,6 +5,5 @@ type Config struct {
 }
 
 type GRPC struct {
-	Host string
-	Port int
+	Address string
 }

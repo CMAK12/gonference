@@ -8,8 +8,7 @@ import (
 func MustLoad() Config {
 	var cfg Config
 
-	cfg.GRPC.Host = getEnv("GRPC_HOST", "0.0.0.0")
-	cfg.GRPC.Port = getEnvInt("GRPC_PORT", 9090)
+	cfg.GRPC.Address = getEnv("GRPC_ADDRESS", "0.0.0.0:9090")
 
 	return cfg
 }

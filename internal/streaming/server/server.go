@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -29,10 +28,9 @@ func Run() {
 
 	sig := signaling.New(s)
 
-	addr := fmt.Sprintf(":%d", cfg.GRPC.Port)
-	grpcServer, err := infraserver.New(addr)
+	grpcServer, err := infraserver.New(cfg.GRPC.Address)
 	if err != nil {
-		slog.Error("Failed to create infraserver", slog.String("error", err.Error()))
+		slog.Error("Failed to create server", slog.String("error", err.Error()))
 		return
 	}
 

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>gonference</title>
+    <link rel="icon" type="image/svg+xml" href="/gonference-icon.svg" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/gonference-icon-32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/gonference-icon-16.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/gonference-icon-180.png" />
+    <script>
+      // Set the theme before first paint to avoid a flash of the wrong theme.
+      (function () {
+        try {
+          var t = localStorage.getItem('gonference-theme')
+          if (t !== 'light' && t !== 'dark') {
+            t = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+          }
+          document.documentElement.dataset.theme = t
+        } catch (e) {}
+      })()
+    </script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
