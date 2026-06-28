@@ -26,7 +26,7 @@ const (
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type SignalingClient interface {
-	Connect(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[SignalMessage, SignalMessage], error)
+	Connect(ctx context.Context, in *SignalMessage, opts ...grpc.CallOption) (*SignalMessage, error)
 }
 
 type signalingClient struct {
@@ -37,24 +37,21 @@ func NewSignalingClient(cc grpc.ClientConnInterface) SignalingClient {
 	return &signalingClient{cc}
 }
 
-func (c *signalingClient) Connect(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[SignalMessage, SignalMessage], error) {
+func (c *signalingClient) Connect(ctx context.Context, in *SignalMessage, opts ...grpc.CallOption) (*SignalMessage, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &Signaling_ServiceDesc.Streams[0], Signaling_Connect_FullMethodName, cOpts...)
+	out := new(SignalMessage)
+	err := c.cc.Invoke(ctx, Signaling_Connect_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
-	x := &grpc.GenericClientStream[SignalMessage, SignalMessage]{ClientStream: stream}
-	return x, nil
+	return out, nil
 }
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Signaling_ConnectClient = grpc.BidiStreamingClient[SignalMessage, SignalMessage]
 
 // SignalingServer is the server API for Signaling service.
 // All implementations must embed UnimplementedSignalingServer
 // for forward compatibility.
 type SignalingServer interface {
-	Connect(grpc.BidiStreamingServer[SignalMessage, SignalMessage]) error
+	Connect(context.Context, *SignalMessage) (*SignalMessage, error)
 	mustEmbedUnimplementedSignalingServer()
 }
 
@@ -65,8 +62,8 @@ type SignalingServer interface {
 // pointer dereference when methods are called.
 type UnimplementedSignalingServer struct{}
 
-func (UnimplementedSignalingServer) Connect(grpc.BidiStreamingServer[SignalMessage, SignalMessage]) error {
-	return status.Errorf(codes.Unimplemented, "method Connect not implemented")
+func (UnimplementedSignalingServer) Connect(context.Context, *SignalMessage) (*SignalMessage, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Connect not implemented")
 }
 func (UnimplementedSignalingServer) mustEmbedUnimplementedSignalingServer() {}
 func (UnimplementedSignalingServer) testEmbeddedByValue()                   {}
@@ -89,12 +86,23 @@ func RegisterSignalingServer(s grpc.ServiceRegistrar, srv SignalingServer) {
 	s.RegisterService(&Signaling_ServiceDesc, srv)
 }
 
-func _Signaling_Connect_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(SignalingServer).Connect(&grpc.GenericServerStream[SignalMessage, SignalMessage]{ServerStream: stream})
+func _Signaling_Connect_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SignalMessage)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SignalingServer).Connect(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Signaling_Connect_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SignalingServer).Connect(ctx, req.(*SignalMessage))
+	}
+	return interceptor(ctx, in, info, handler)
 }
-
-// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type Signaling_ConnectServer = grpc.BidiStreamingServer[SignalMessage, SignalMessage]
 
 // Signaling_ServiceDesc is the grpc.ServiceDesc for Signaling service.
 // It's only intended for direct use with grpc.RegisterService,
@@ -102,14 +110,12 @@ type Signaling_ConnectServer = grpc.BidiStreamingServer[SignalMessage, SignalMes
 var Signaling_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "gonference.signaling.v1.Signaling",
 	HandlerType: (*SignalingServer)(nil),
-	Methods:     []grpc.MethodDesc{},
-	Streams: []grpc.StreamDesc{
+	Methods: []grpc.MethodDesc{
 		{
-			StreamName:    "Connect",
-			Handler:       _Signaling_Connect_Handler,
-			ServerStreams: true,
-			ClientStreams: true,
+			MethodName: "Connect",
+			Handler:    _Signaling_Connect_Handler,
 		},
 	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "streaming/v1/signaling.proto",
 }

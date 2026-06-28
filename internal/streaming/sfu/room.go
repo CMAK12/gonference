@@ -39,10 +39,10 @@ func (r *Room) GetPeer(id string) (*Peer, bool) {
 	return peer, ok
 }
 
-func (r *Room) AddPeer(signal Signaling, offer webrtc.SessionDescription, id string) (*Peer, error) {
-	peer, err := NewPeer(r.api, signal, r, offer, id)
+func (r *Room) AddPeer(offer webrtc.SessionDescription, id string) (webrtc.SessionDescription, *Peer, error) {
+	peer, answer, err := NewPeer(r.api, r, offer, id)
 	if err != nil {
-		return nil, err
+		return webrtc.SessionDescription{}, nil, err
 	}
 
 	r.mux.Lock()
@@ -53,6 +53,9 @@ func (r *Room) AddPeer(signal Signaling, offer webrtc.SessionDescription, id str
 	}
 	r.mux.Unlock()
 
+	// Add media already flowing in the room. Renegotiation is deferred until the
+	// peer's signaling DataChannel opens (see Peer.OnDataChannel/OnOpen), since
+	// the offer advertising these tracks travels over that channel.
 	for _, forwarder := range forwarders {
 		local, err := forwarder.AddPeer(id)
 		if err != nil {
@@ -66,12 +69,7 @@ func (r *Room) AddPeer(signal Signaling, offer webrtc.SessionDescription, id str
 		}
 	}
 
-	if err := peer.Renegotiate(); err != nil {
-		peer.logger.Error("Failed to renegotiate", slog.String("error", err.Error()))
-		return nil, err
-	}
-
-	return peer, nil
+	return answer, peer, nil
 }
 
 func (r *Room) RemovePeer(id string) {
@@ -100,7 +98,7 @@ func (r *Room) RemovePeer(id string) {
 	}
 
 	for _, p := range otherPeers {
-		if err := p.signaling.WriteMessage(leaveMsg); err != nil {
+		if err := p.sendSignal(leaveMsg); err != nil {
 			p.logger.Error("Failed to send leave message", slog.String("error", err.Error()))
 		}
 	}

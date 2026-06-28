@@ -1,24 +1,19 @@
 package grpcv1
 
 import (
-	"errors"
+	"context"
 	"fmt"
-	"io"
 	"log/slog"
 
 	impb "github.com/CMAK12/gonference/internal/gen/streaming/v1"
 	"github.com/CMAK12/gonference/internal/streaming/entity"
 	"github.com/CMAK12/gonference/internal/streaming/entity/mapper"
-	"google.golang.org/grpc"
 )
 
 var _ impb.SignalingServer = (*SignalingServer)(nil)
 
 type Signaling interface {
-	HandleOffer(message entity.SignalMessage) error
-	HandleAnswer(message entity.SignalMessage) error
-	HandleCandidate(message entity.SignalMessage) error
-	HandleLeave(message entity.SignalMessage) error
+	HandleOffer(message entity.SignalMessage) (entity.SignalMessage, error)
 }
 
 type SignalingServer struct {
@@ -31,46 +26,23 @@ type SignalingServer struct {
 
 func NewSignalingServer(s Signaling) *SignalingServer {
 	return &SignalingServer{
+		log:       slog.Default().With(slog.String("component", "signaling-grpc")),
 		signaling: s,
 	}
 }
 
-func (ss *SignalingServer) Connect(stream grpc.BidiStreamingServer[impb.SignalMessage, impb.SignalMessage]) error {
-	for {
-		req, err := stream.Recv()
-		if err != nil {
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-
-			return fmt.Errorf("grpcv1.Connect: could not receive a request: %w", err)
-		}
-
-		msg := mapper.MapProtoToMessage(req)
-
-		switch req.Type {
-		case impb.MessageType_OFFER:
-			if err := ss.signaling.HandleOffer(msg); err != nil {
-				return fmt.Errorf("grpcv1.Connect: could not handle offer: %w", err)
-			}
-
-		case impb.MessageType_ANSWER:
-			if err := ss.signaling.HandleAnswer(msg); err != nil {
-				return fmt.Errorf("grpcv1.Connect: could not handle answer: %w", err)
-			}
-
-		case impb.MessageType_CANDIDATE:
-			if err := ss.signaling.HandleCandidate(msg); err != nil {
-				return fmt.Errorf("grpcv1.Connect: could not handle candidate: %w", err)
-			}
-
-		case impb.MessageType_LEAVE:
-			if err := ss.signaling.HandleLeave(msg); err != nil {
-				return fmt.Errorf("grpcv1.Connect: could not handle leave: %w", err)
-			}
-
-		default:
-			ss.log.Warn("Unknown message type", slog.String("type", req.Type.String()))
-		}
+// Connect bootstraps a peer: it accepts the client's offer and returns the SFU's
+// answer. Subsequent signaling is exchanged over the peer's DataChannel.
+func (ss *SignalingServer) Connect(_ context.Context, req *impb.SignalMessage) (*impb.SignalMessage, error) {
+	if req.Type != impb.MessageType_OFFER {
+		return nil, fmt.Errorf("grpcv1.Connect: expected offer, got %s", req.Type.String())
 	}
+
+	answer, err := ss.signaling.HandleOffer(mapper.MapProtoToMessage(req))
+	if err != nil {
+		ss.log.Error("Failed to handle offer", slog.String("error", err.Error()))
+		return nil, fmt.Errorf("grpcv1.Connect: could not handle offer: %w", err)
+	}
+
+	return mapper.MapMessageToProto(answer), nil
 }

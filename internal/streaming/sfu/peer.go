@@ -1,7 +1,9 @@
 package sfu
 
 import (
+	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"sync"
@@ -12,26 +14,28 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
-type Signaling interface {
-	WriteMessage(msg entity.SignalMessage) error
-	Close() error
-}
+// signalingChannelLabel is the label of the DataChannel the client opens to
+// exchange post-handshake signaling (renegotiation offers/answers, leave).
+const signalingChannelLabel = "signaling"
 
 type Peer struct {
 	id string
 
-	logger    *slog.Logger
-	conn      *webrtc.PeerConnection
-	room      *Room
-	signaling Signaling
+	logger *slog.Logger
+	conn   *webrtc.PeerConnection
+	room   *Room
 
 	mux            sync.RWMutex
+	dc             *webrtc.DataChannel
 	inTracks       map[string]*webrtc.TrackRemote
 	outTracks      map[string]*webrtc.TrackLocalStaticRTP
 	candidateQueue []webrtc.ICECandidateInit
 }
 
-func NewPeer(api *webrtc.API, signal Signaling, room *Room, offer webrtc.SessionDescription, id string) (*Peer, error) {
+// NewPeer creates a peer connection for the client's offer and returns the local
+// answer. The answer is sent back over the bootstrap RPC; all further signaling
+// flows over the client-created DataChannel.
+func NewPeer(api *webrtc.API, room *Room, offer webrtc.SessionDescription, id string) (*Peer, webrtc.SessionDescription, error) {
 	pc, err := api.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{
@@ -39,34 +43,53 @@ func NewPeer(api *webrtc.API, signal Signaling, room *Room, offer webrtc.Session
 			},
 		},
 	})
+	if err != nil {
+		return nil, webrtc.SessionDescription{}, err
+	}
 
 	peer := &Peer{
 		id:        id,
 		logger:    slog.Default().With("peer", id),
 		conn:      pc,
 		room:      room,
-		signaling: signal,
 		inTracks:  make(map[string]*webrtc.TrackRemote),
 		outTracks: make(map[string]*webrtc.TrackLocalStaticRTP),
 	}
 
-	pc.OnICECandidate(func(c *webrtc.ICECandidate) {
-		if c == nil {
+	pc.OnDataChannel(func(d *webrtc.DataChannel) {
+		if d.Label() != signalingChannelLabel {
 			return
 		}
 
-		candidate := c.ToJSON()
+		peer.mux.Lock()
+		peer.dc = d
+		peer.mux.Unlock()
 
-		msg := entity.SignalMessage{
-			Type:      entity.TypeCandidate,
-			RoomID:    room.ID(),
-			MemberID:  id,
-			Candidate: &candidate,
-		}
+		d.OnOpen(func() {
+			peer.logger.Info("Signaling data channel open")
 
-		if err := signal.WriteMessage(msg); err != nil {
-			peer.logger.Error("Failed to send ICE candidate", slog.String("error", err.Error()))
-		}
+			peer.mux.RLock()
+			hasTracks := len(peer.outTracks) > 0
+			peer.mux.RUnlock()
+
+			// Tracks added before the channel opened (existing room media)
+			// are negotiated now that we have a channel to deliver the offer.
+			if hasTracks {
+				if err := peer.Renegotiate(); err != nil {
+					peer.logger.Error("Failed to renegotiate on data channel open", slog.String("error", err.Error()))
+				}
+			}
+		})
+
+		d.OnMessage(func(raw webrtc.DataChannelMessage) {
+			var msg entity.SignalMessage
+			if err := json.Unmarshal(raw.Data, &msg); err != nil {
+				peer.logger.Error("Failed to unmarshal signaling message", slog.String("error", err.Error()))
+				return
+			}
+
+			peer.handleSignal(msg)
+		})
 	})
 
 	var cleanupOnce sync.Once
@@ -94,14 +117,15 @@ func NewPeer(api *webrtc.API, signal Signaling, room *Room, offer webrtc.Session
 		Direction: webrtc.RTPTransceiverDirectionRecvonly,
 	})
 	if err != nil {
-		return nil, err
+		return nil, webrtc.SessionDescription{}, err
 	}
 
-	if err := peer.SendAnswer(offer); err != nil {
-		return nil, err
+	answer, err := peer.CreateAnswer(offer)
+	if err != nil {
+		return nil, webrtc.SessionDescription{}, err
 	}
 
-	return peer, err
+	return peer, answer, nil
 }
 
 func (p *Peer) ID() string {
@@ -109,8 +133,16 @@ func (p *Peer) ID() string {
 }
 
 func (p *Peer) Close() error {
+	p.mux.Lock()
+	dc := p.dc
+	p.dc = nil
 	clear(p.inTracks)
 	clear(p.outTracks)
+	p.mux.Unlock()
+
+	if dc != nil {
+		_ = dc.Close()
+	}
 
 	if err := p.conn.Close(); err != nil {
 		if errors.Is(err, net.ErrClosed) {
@@ -155,7 +187,7 @@ func (p *Peer) CreateAnswer(offer webrtc.SessionDescription) (webrtc.SessionDesc
 
 	<-webrtc.GatheringCompletePromise(p.conn)
 
-	return answer, nil
+	return *p.conn.LocalDescription(), nil
 }
 
 func (p *Peer) ValidateAnswer(answer webrtc.SessionDescription) error {
@@ -192,7 +224,18 @@ func (p *Peer) AddTrackAndRenegotiate(track *webrtc.TrackLocalStaticRTP) error {
 	return p.Renegotiate()
 }
 
+// Renegotiate creates a fresh offer and sends it over the signaling DataChannel.
+// If the channel is not open yet, it is a no-op: the OnOpen handler renegotiates
+// once the channel becomes available, capturing all tracks added in the meantime.
 func (p *Peer) Renegotiate() error {
+	p.mux.RLock()
+	dc := p.dc
+	p.mux.RUnlock()
+
+	if dc == nil || dc.ReadyState() != webrtc.DataChannelStateOpen {
+		return nil
+	}
+
 	offer, err := p.conn.CreateOffer(nil)
 	if err != nil {
 		return err
@@ -211,35 +254,50 @@ func (p *Peer) Renegotiate() error {
 		SDP:      &p.conn.LocalDescription().SDP,
 	}
 
-	return p.signaling.WriteMessage(msg)
+	return p.sendSignal(msg)
 }
 
-func (p *Peer) SendAnswer(offer webrtc.SessionDescription) error {
-	if err := p.conn.SetRemoteDescription(offer); err != nil {
-		return err
+// sendSignal serializes a signaling message as JSON and writes it to the client
+// over the signaling DataChannel.
+func (p *Peer) sendSignal(msg entity.SignalMessage) error {
+	p.mux.RLock()
+	dc := p.dc
+	p.mux.RUnlock()
+
+	if dc == nil || dc.ReadyState() != webrtc.DataChannelStateOpen {
+		return fmt.Errorf("peer %s: signaling data channel not open", p.id)
 	}
 
-	p.flushCandidateQueue()
-
-	answer, err := p.conn.CreateAnswer(nil)
+	data, err := json.Marshal(msg)
 	if err != nil {
-		return err
+		return fmt.Errorf("marshal signal message: %w", err)
 	}
 
-	if err = p.conn.SetLocalDescription(answer); err != nil {
-		return err
+	return dc.SendText(string(data))
+}
+
+// handleSignal dispatches an inbound signaling message received on the DataChannel.
+func (p *Peer) handleSignal(msg entity.SignalMessage) {
+	switch msg.Type {
+	case entity.TypeAnswer:
+		if msg.SDP == nil {
+			p.logger.Warn("Answer without SDP")
+			return
+		}
+
+		if err := p.ValidateAnswer(webrtc.SessionDescription{
+			Type: webrtc.SDPTypeAnswer,
+			SDP:  *msg.SDP,
+		}); err != nil {
+			p.logger.Error("Failed to set remote answer", slog.String("error", err.Error()))
+		}
+
+	case entity.TypeLeave:
+		p.room.RemovePeer(p.id)
+
+	default:
+		p.logger.Debug("Ignoring signaling message", slog.String("type", string(msg.Type)))
 	}
-
-	<-webrtc.GatheringCompletePromise(p.conn)
-
-	msg := entity.SignalMessage{
-		Type:     entity.TypeAnswer,
-		RoomID:   p.room.ID(),
-		MemberID: p.id,
-		SDP:      &p.conn.LocalDescription().SDP,
-	}
-
-	return p.signaling.WriteMessage(msg)
 }
 
 func (p *Peer) flushCandidateQueue() {

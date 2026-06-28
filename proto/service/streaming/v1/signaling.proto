@@ -3,7 +3,7 @@ syntax = "proto3";
 package gonference.signaling.v1;
 
 service Signaling {
-  rpc Connect(stream SignalMessage) returns (stream SignalMessage);
+  rpc Connect(SignalMessage) returns (SignalMessage);
 }
 
 message SignalMessage {
