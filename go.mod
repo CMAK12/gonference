@@ -1,10 +1,9 @@
-module gonference
+module github.com/CMAK12/gonference
 
-go 1.24.2
+go 1.26.4
 
 require (
 	github.com/google/uuid v1.6.0
-	github.com/gorilla/websocket v1.5.3
 	github.com/pion/interceptor v0.1.29
 	github.com/pion/rtcp v1.2.14
 	github.com/pion/webrtc/v3 v3.3.6
