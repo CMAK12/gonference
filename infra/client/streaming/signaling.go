@@ -1,5 +1,3 @@
-// Package streaming holds the gateway's client for the streaming service's
-// gRPC signaling API. The gateway uses it to forward WHIP offers to the SFU.
 package streaming
 
 import (
@@ -12,13 +10,11 @@ import (
 	"google.golang.org/grpc/credentials/insecure"
 )
 
-// Client is a gRPC client to the streaming service's Signaling API.
 type Client struct {
 	conn      *grpc.ClientConn
 	signaling impb.SignalingClient
 }
 
-// New dials the streaming service at addr (host:port) and returns a Client.
 func New(addr string) (*Client, error) {
 	conn, err := grpc.NewClient(addr, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -31,8 +27,6 @@ func New(addr string) (*Client, error) {
 	}, nil
 }
 
-// Connect forwards a publisher's SDP offer to the SFU and returns the SFU's
-// answer SDP. Post-handshake signaling continues over the peer's DataChannel.
 func (c *Client) Connect(ctx context.Context, roomID, memberID, offer string) (string, error) {
 	resp, err := c.signaling.Connect(ctx, &impb.SignalMessage{
 		Type:     impb.MessageType_OFFER,

@@ -40,18 +40,18 @@ func Run() {
 
 	go func() {
 		if err := grpcServer.Serve(); err != nil {
-			slog.Error("Failed to serve server", slog.String("error", err.Error()))
+			slog.Error("Failed to serve streaming server", slog.String("error", err.Error()))
 			return
 		}
 	}()
 
-	// CLOSING
+	// STOPPING
 
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
 
-	rsig := <-sigChan
-	slog.Info("Execution interrupted, shutting down streaming service", slog.String("signal", rsig.String()))
+	recSig := <-sigChan
+	slog.Info("Execution interrupted, shutting down streaming service", slog.String("signal", recSig.String()))
 
 	grpcServer.GracefulStop()
 	s.Close()

@@ -4,7 +4,7 @@
 // 	protoc        (unknown)
 // source: streaming/v1/signaling.proto
 
-package streaming
+package conference
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -247,8 +247,8 @@ const file_streaming_v1_signaling_proto_rawDesc = "" +
 	"\tCANDIDATE\x10\x02\x12\t\n" +
 	"\x05LEAVE\x10\x032f\n" +
 	"\tSignaling\x12Y\n" +
-	"\aConnect\x12&.gonference.signaling.v1.SignalMessage\x1a&.gonference.signaling.v1.SignalMessageB\xed\x01\n" +
-	"\x1bcom.gonference.signaling.v1B\x0eSignalingProtoP\x01Z@github.com/CMAK12/gonference/internal/gen/streaming/v1;streaming\xa2\x02\x03GSX\xaa\x02\x17Gonference.Signaling.V1\xca\x02\x17Gonference\\Signaling\\V1\xe2\x02#Gonference\\Signaling\\V1\\GPBMetadata\xea\x02\x19Gonference::Signaling::V1b\x06proto3"
+	"\aConnect\x12&.gonference.signaling.v1.SignalMessage\x1a&.gonference.signaling.v1.SignalMessageB\xef\x01\n" +
+	"\x1bcom.gonference.signaling.v1B\x0eSignalingProtoP\x01ZBgithub.com/CMAK12/gonference/internal/gen/conference/v1;conference\xa2\x02\x03GSX\xaa\x02\x17Gonference.Signaling.V1\xca\x02\x17Gonference\\Signaling\\V1\xe2\x02#Gonference\\Signaling\\V1\\GPBMetadata\xea\x02\x19Gonference::Signaling::V1b\x06proto3"
 
 var (
 	file_streaming_v1_signaling_proto_rawDescOnce sync.Once

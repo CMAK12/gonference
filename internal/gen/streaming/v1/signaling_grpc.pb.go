@@ -4,7 +4,7 @@
 // - protoc             (unknown)
 // source: streaming/v1/signaling.proto
 
-package streaming
+package conference
 
 import (
 	context "context"

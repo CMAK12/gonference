@@ -14,8 +14,6 @@ import (
 	"github.com/pion/webrtc/v3"
 )
 
-// signalingChannelLabel is the label of the DataChannel the client opens to
-// exchange post-handshake signaling (renegotiation offers/answers, leave).
 const signalingChannelLabel = "signaling"
 
 type Peer struct {
@@ -32,9 +30,6 @@ type Peer struct {
 	candidateQueue []webrtc.ICECandidateInit
 }
 
-// NewPeer creates a peer connection for the client's offer and returns the local
-// answer. The answer is sent back over the bootstrap RPC; all further signaling
-// flows over the client-created DataChannel.
 func NewPeer(api *webrtc.API, room *Room, offer webrtc.SessionDescription, id string) (*Peer, webrtc.SessionDescription, error) {
 	pc, err := api.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
@@ -72,8 +67,6 @@ func NewPeer(api *webrtc.API, room *Room, offer webrtc.SessionDescription, id st
 			hasTracks := len(peer.outTracks) > 0
 			peer.mux.RUnlock()
 
-			// Tracks added before the channel opened (existing room media)
-			// are negotiated now that we have a channel to deliver the offer.
 			if hasTracks {
 				if err := peer.Renegotiate(); err != nil {
 					peer.logger.Error("Failed to renegotiate on data channel open", slog.String("error", err.Error()))
@@ -224,9 +217,6 @@ func (p *Peer) AddTrackAndRenegotiate(track *webrtc.TrackLocalStaticRTP) error {
 	return p.Renegotiate()
 }
 
-// Renegotiate creates a fresh offer and sends it over the signaling DataChannel.
-// If the channel is not open yet, it is a no-op: the OnOpen handler renegotiates
-// once the channel becomes available, capturing all tracks added in the meantime.
 func (p *Peer) Renegotiate() error {
 	p.mux.RLock()
 	dc := p.dc
@@ -257,8 +247,6 @@ func (p *Peer) Renegotiate() error {
 	return p.sendSignal(msg)
 }
 
-// sendSignal serializes a signaling message as JSON and writes it to the client
-// over the signaling DataChannel.
 func (p *Peer) sendSignal(msg entity.SignalMessage) error {
 	p.mux.RLock()
 	dc := p.dc
@@ -276,7 +264,6 @@ func (p *Peer) sendSignal(msg entity.SignalMessage) error {
 	return dc.SendText(string(data))
 }
 
-// handleSignal dispatches an inbound signaling message received on the DataChannel.
 func (p *Peer) handleSignal(msg entity.SignalMessage) {
 	switch msg.Type {
 	case entity.TypeAnswer:
