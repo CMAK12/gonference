@@ -1,0 +1,12 @@
+.git
+.gitignore
+.idea
+.claude
+
+frontend
+node_modules
+dist
+
+*.exe
+DESIGN_BRIEF.md
+docker-compose-dep.yaml

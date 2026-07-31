@@ -1,3 +1,5 @@
+// Package interceptors provides gRPC server interceptors shared by the
+// services in this repository.
 package interceptors
 
 import (
@@ -6,31 +8,78 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/peer"
 	"google.golang.org/grpc/status"
 )
 
+// NewUnaryLogging returns an interceptor that logs the outcome and latency of
+// every unary RPC. Failures are logged at error level, client errors at warn
+// and successes at info.
 func NewUnaryLogging(logger *slog.Logger) grpc.UnaryServerInterceptor {
-	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (resp any, err error) {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		start := time.Now()
 
-		resp, err = handler(ctx, req)
+		resp, err := handler(ctx, req)
 
-		duration := time.Since(start)
-		code := status.Code(err)
+		logCall(ctx, logger, info.FullMethod, time.Since(start), err)
 
-		attrs := []any{
-			"grpc.method", info.FullMethod,
-			"code", code.String(),
-			"duration_ms", duration.Milliseconds(),
-		}
+		return resp, err
+	}
+}
 
-		if err != nil {
-			attrs = append(attrs, "error", err.Error())
-			logger.ErrorContext(ctx, "gRPC request failed", attrs...)
-			return resp, err
-		}
+// NewStreamLogging returns the streaming counterpart of NewUnaryLogging. It
+// logs once per stream, when the stream ends.
+func NewStreamLogging(logger *slog.Logger) grpc.StreamServerInterceptor {
+	return func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+		start := time.Now()
 
-		logger.InfoContext(ctx, "gRPC request completed", attrs...)
-		return resp, nil
+		err := handler(srv, ss)
+
+		logCall(ss.Context(), logger, info.FullMethod, time.Since(start), err)
+
+		return err
+	}
+}
+
+// logCall emits a single structured record describing a finished RPC.
+func logCall(ctx context.Context, logger *slog.Logger, method string, duration time.Duration, err error) {
+	code := status.Code(err)
+
+	attrs := make([]slog.Attr, 0, 5)
+	attrs = append(attrs,
+		slog.String("method", method),
+		slog.String("code", code.String()),
+		slog.Duration("duration", duration),
+	)
+
+	if p, ok := peer.FromContext(ctx); ok {
+		attrs = append(attrs, slog.String("peer", p.Addr.String()))
+	}
+
+	if err != nil {
+		attrs = append(attrs, slog.String("error", err.Error()))
+	}
+
+	logger.LogAttrs(ctx, levelForCode(code), "grpc request", attrs...)
+}
+
+// levelForCode maps a status code to a log level so that client mistakes do not
+// page whoever owns the server.
+func levelForCode(code codes.Code) slog.Level {
+	switch code {
+	case codes.OK, codes.Canceled:
+		return slog.LevelInfo
+	case codes.InvalidArgument,
+		codes.NotFound,
+		codes.AlreadyExists,
+		codes.PermissionDenied,
+		codes.Unauthenticated,
+		codes.FailedPrecondition,
+		codes.OutOfRange,
+		codes.ResourceExhausted:
+		return slog.LevelWarn
+	default:
+		return slog.LevelError
 	}
 }

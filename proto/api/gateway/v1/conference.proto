@@ -1,0 +1,33 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+package gonference.gateway.v1;
+
+service Conference {
+  rpc CreateConference(CreateConferenceRequest) returns (CreateConferenceResponse);
+  rpc JoinConference(JoinConferenceRequest) returns (JoinConferenceResponse);
+}
+
+message CreateConferenceRequest {
+  repeated string invited_members = 3;
+  google.protobuf.Timestamp start_time = 4;
+  google.protobuf.Timestamp end_time = 5;
+}
+
+message CreateConferenceResponse {
+  string conference_id = 1;
+  string url = 2;
+}
+
+message JoinConferenceRequest {
+  string conference_id = 1;
+  string member_id = 2;
+}
+
+// TODO: Add fields for the response, such as token to connect to streaming service, expires_at, etc.
+message JoinConferenceResponse {
+  string conference_id = 1;
+  string member_id = 2;
+  string url = 3;
+}

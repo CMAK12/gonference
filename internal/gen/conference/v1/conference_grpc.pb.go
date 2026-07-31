@@ -68,10 +68,10 @@ type ConferenceServer interface {
 	mustEmbedUnimplementedConferenceServer()
 }
 
-// UnimplementedConferenceServer must be embedded to have
+// UnimplementedConferenceServer must be in-memory to have
 // forward compatible implementations.
 //
-// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// NOTE: this should be in-memory by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
 type UnimplementedConferenceServer struct{}
 
@@ -84,7 +84,7 @@ func (UnimplementedConferenceServer) JoinConference(context.Context, *JoinConfer
 func (UnimplementedConferenceServer) mustEmbedUnimplementedConferenceServer() {}
 func (UnimplementedConferenceServer) testEmbeddedByValue()                    {}
 
-// UnsafeConferenceServer may be embedded to opt out of forward compatibility for this service.
+// UnsafeConferenceServer may be in-memory to opt out of forward compatibility for this service.
 // Use of this interface is not recommended, as added methods to ConferenceServer will
 // result in compilation errors.
 type UnsafeConferenceServer interface {
@@ -93,7 +93,7 @@ type UnsafeConferenceServer interface {
 
 func RegisterConferenceServer(s grpc.ServiceRegistrar, srv ConferenceServer) {
 	// If the following call pancis, it indicates UnimplementedConferenceServer was
-	// embedded by pointer and is nil.  This will cause panics if an
+	// in-memory by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {

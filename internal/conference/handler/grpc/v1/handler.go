@@ -2,11 +2,6 @@ package grpcv1
 
 import "google.golang.org/grpc"
 
-type Handler struct {
-}
-
-func NewHandler(server grpc.ServiceRegistrar, s ConferenceService) *Handler {
+func RegisterGRPCV1Handler(server grpc.ServiceRegistrar, s ConferenceService) {
 	registerConferenceServer(server, s)
-
-	return &Handler{}
 }

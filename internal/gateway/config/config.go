@@ -1,54 +1,30 @@
 package config
 
-import (
-	"fmt"
-	"os"
-	"strconv"
-)
+import "time"
 
 type Config struct {
-	REST      REST
-	Streaming Streaming
+	GRPC   GRPC
+	Client Client
 }
 
-type REST struct {
-	Port int
-}
+type (
+	GRPC struct {
+		Addr string
 
-// Streaming addresses the streaming service's gRPC endpoint that the gateway
-// forwards WHIP offers to.
-type Streaming struct {
-	Host string
-	Port int
-}
+		MaxRecvMsgSize int
+		MaxSendMsgSize int
 
-// Addr returns the host:port the gateway dials to reach the streaming service.
-func (s Streaming) Addr() string {
-	return fmt.Sprintf("%s:%d", s.Host, s.Port)
-}
+		ConnectionTimeout time.Duration
+		ShutdownTimeout   time.Duration
 
-func MustLoad() Config {
-	var cfg Config
+		MaxConnectionIdle     time.Duration
+		KeepaliveTime         time.Duration
+		KeepaliveTimeout      time.Duration
+		MinClientPingInterval time.Duration
 
-	cfg.REST.Port = getEnvInt("REST_PORT", 8080)
-	cfg.Streaming.Host = getEnv("STREAMING_GRPC_HOST", "127.0.0.1")
-	cfg.Streaming.Port = getEnvInt("STREAMING_GRPC_PORT", 9090)
-
-	return cfg
-}
-
-func getEnv(key, fallback string) string {
-	if v, ok := os.LookupEnv(key); ok {
-		return v
+		Reflection bool
 	}
 
-	return fallback
-}
-
-func getEnvInt(key string, fallback int) int {
-	if v, err := strconv.Atoi(os.Getenv(key)); err == nil {
-		return v
+	Client struct {
 	}
-
-	return fallback
-}
+)

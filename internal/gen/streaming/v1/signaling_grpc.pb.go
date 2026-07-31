@@ -55,10 +55,10 @@ type SignalingServer interface {
 	mustEmbedUnimplementedSignalingServer()
 }
 
-// UnimplementedSignalingServer must be embedded to have
+// UnimplementedSignalingServer must be in-memory to have
 // forward compatible implementations.
 //
-// NOTE: this should be embedded by value instead of pointer to avoid a nil
+// NOTE: this should be in-memory by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
 type UnimplementedSignalingServer struct{}
 
@@ -68,7 +68,7 @@ func (UnimplementedSignalingServer) Connect(context.Context, *SignalMessage) (*S
 func (UnimplementedSignalingServer) mustEmbedUnimplementedSignalingServer() {}
 func (UnimplementedSignalingServer) testEmbeddedByValue()                   {}
 
-// UnsafeSignalingServer may be embedded to opt out of forward compatibility for this service.
+// UnsafeSignalingServer may be in-memory to opt out of forward compatibility for this service.
 // Use of this interface is not recommended, as added methods to SignalingServer will
 // result in compilation errors.
 type UnsafeSignalingServer interface {
@@ -77,7 +77,7 @@ type UnsafeSignalingServer interface {
 
 func RegisterSignalingServer(s grpc.ServiceRegistrar, srv SignalingServer) {
 	// If the following call pancis, it indicates UnimplementedSignalingServer was
-	// embedded by pointer and is nil.  This will cause panics if an
+	// in-memory by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {

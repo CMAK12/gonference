@@ -28,7 +28,7 @@ message JoinConferenceRequest {
   string member_id = 2;
 }
 
-// TODO: Add fields for the response, such as token to connect to streaming service, expires_at, , etc.
+// TODO: Add fields for the response, such as token to connect to streaming service, expires_at, etc.
 message JoinConferenceResponse {
   string conference_id = 1;
   string member_id = 2;
