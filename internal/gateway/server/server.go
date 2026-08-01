@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/CMAK12/gonference/infra/client/conference"
 	infraserver "github.com/CMAK12/gonference/infra/server/grpc"
 	"github.com/CMAK12/gonference/internal/gateway/config"
 	grpcv1 "github.com/CMAK12/gonference/internal/gateway/handler/grpc/v1"
@@ -16,6 +17,7 @@ import (
 )
 
 const serviceName = "gateway"
+const healthServiceName = "GATEWAY_V1"
 
 func Run() error {
 	log := slog.Default().With(slog.String("service", serviceName))
@@ -25,7 +27,19 @@ func Run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	svc := service.New()
+	conferenceClient, err := conference.NewClient(cfg.Client.Conference.Addr)
+	if err != nil {
+		return fmt.Errorf("create conference client: %w", err)
+	}
+	defer func() {
+		if err := conferenceClient.Close(); err != nil {
+			log.Error("close conference client", slog.String("error", err.Error()))
+		}
+	}()
+
+	log.Info("conference client ready", "addr", cfg.Client.Conference.Addr)
+
+	svc := service.New(conferenceClient)
 
 	grpcServer, err := infraserver.New(cfg.GRPC.Addr,
 		infraserver.WithLogger(log),
@@ -48,7 +62,7 @@ func Run() error {
 		return fmt.Errorf("create grpc server: %w", err)
 	}
 
-	grpcServer.SetServingStatus("GATEWAY_V1", grpc_health_v1.HealthCheckResponse_SERVING)
+	grpcServer.SetServingStatus(healthServiceName, grpc_health_v1.HealthCheckResponse_SERVING)
 
 	grpcv1.RegisterGRPCV1Handler(grpcServer, svc)
 
@@ -69,7 +83,7 @@ func Run() error {
 		log.Info("shutdown signal received, draining gateway")
 	}
 
-	grpcServer.SetServingStatus("GATEWAY_V1", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
+	grpcServer.SetServingStatus(healthServiceName, grpc_health_v1.HealthCheckResponse_NOT_SERVING)
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.GRPC.ShutdownTimeout)
 	defer cancel()

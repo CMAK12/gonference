@@ -1,8 +1,22 @@
 package service
 
-type Service struct {
+import (
+	"context"
+
+	confpb "github.com/CMAK12/gonference/internal/gen/conference/v1"
+)
+
+type ConferenceClient interface {
+	CreateConference(ctx context.Context, req *confpb.CreateConferenceRequest) (*confpb.CreateConferenceResponse, error)
+	JoinConference(ctx context.Context, req *confpb.JoinConferenceRequest) (*confpb.JoinConferenceResponse, error)
 }
 
-func New() *Service {
-	return &Service{}
+type Service struct {
+	conference ConferenceClient
+}
+
+func New(conference ConferenceClient) *Service {
+	return &Service{
+		conference: conference,
+	}
 }

@@ -1,17 +1,11 @@
 package config
 
-import (
-	"time"
-
-	"github.com/CMAK12/gonference/infra/db/in-memory/dragonfly"
-	"github.com/CMAK12/gonference/infra/db/relational/postgres"
-)
+import "time"
 
 type Config struct {
-	GRPC      GRPC
-	Storage   Storage
-	Postgres  postgres.Config
-	Dragonfly dragonfly.Config
+	GRPC         GRPC
+	RelationalDB RelationalDB
+	InMemoryDB   InMemoryDB
 }
 
 type GRPC struct {
@@ -31,6 +25,27 @@ type GRPC struct {
 	Reflection bool
 }
 
-type Storage struct {
+type RelationalDB struct {
 	Driver string
+
+	Host     string
+	Port     string
+	User     string
+	Password string
+	Database string
+	Schema   string
+	SSLMode  string
+
+	MaxConnections  int32
+	MinConnections  int32
+	MaxConnLifetime time.Duration
+	MaxConnIdleTime time.Duration
+}
+
+type InMemoryDB struct {
+	Driver string
+
+	Addr     string
+	Password string
+	Database int
 }

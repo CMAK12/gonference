@@ -2,8 +2,10 @@ package grpcv1
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
+	"github.com/CMAK12/gonference/internal/gateway/service"
 	pb "github.com/CMAK12/gonference/internal/gen/gateway/v1"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -42,7 +44,12 @@ func (s *ConferenceServer) CreateConference(ctx context.Context, req *pb.CreateC
 func (s *ConferenceServer) JoinConference(ctx context.Context, req *pb.JoinConferenceRequest) (*pb.JoinConferenceResponse, error) {
 	resp, err := s.src.JoinConference(ctx, req)
 	if err != nil {
+		if errors.Is(err, service.ErrConferenceNotFound) {
+			return nil, status.Error(codes.NotFound, "conference not found")
+		}
+
 		s.log.Error("Failed to join conference", slog.String("error", err.Error()))
+
 		return nil, status.Error(codes.Internal, "could not join conference")
 	}
 

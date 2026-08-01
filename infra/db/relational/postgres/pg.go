@@ -8,40 +8,118 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Config holds the settings used to connect to a PostgreSQL database.
-type Config struct {
-	Host     string
-	Port     string
-	User     string
-	Password string
-	Database string
-	SSLMode  string
+const (
+	defaultHost    = "127.0.0.1"
+	defaultPort    = "5432"
+	defaultSSLMode = "disable"
+	defaultSchema  = "public"
+)
 
-	MaxConns        int32
-	MinConns        int32
-	MaxConnLifetime time.Duration
-	MaxConnIdleTime time.Duration
+type config struct {
+	host     string
+	port     string
+	user     string
+	password string
+	database string
+	sslMode  string
+	schema   string
+
+	maxConns        int32
+	minConns        int32
+	maxConnLifetime time.Duration
+	maxConnIdleTime time.Duration
 }
 
-// Client is a PostgreSQL connection pool.
+type Option func(*config)
+
+func WithAddr(host, port string) Option {
+	return func(c *config) {
+		if host != "" {
+			c.host = host
+		}
+		if port != "" {
+			c.port = port
+		}
+	}
+}
+
+func WithCredentials(user, password string) Option {
+	return func(c *config) {
+		c.user = user
+		c.password = password
+	}
+}
+
+func WithDatabase(database string) Option {
+	return func(c *config) { c.database = database }
+}
+
+func WithSchema(schema string) Option {
+	return func(c *config) {
+		if schema != "" {
+			c.schema = schema
+		}
+	}
+}
+
+func WithSSLMode(mode string) Option {
+	return func(c *config) {
+		if mode != "" {
+			c.sslMode = mode
+		}
+	}
+}
+
+func WithPoolSize(maxConns, minConns int32) Option {
+	return func(c *config) {
+		if maxConns > 0 {
+			c.maxConns = maxConns
+		}
+		if minConns > 0 {
+			c.minConns = minConns
+		}
+	}
+}
+
+func WithConnLifetime(d time.Duration) Option {
+	return func(c *config) {
+		if d > 0 {
+			c.maxConnLifetime = d
+		}
+	}
+}
+
+func WithConnIdleTime(d time.Duration) Option {
+	return func(c *config) {
+		if d > 0 {
+			c.maxConnIdleTime = d
+		}
+	}
+}
+
 type Client struct {
 	*pgxpool.Pool
+
+	schema string
 }
 
-func New(ctx context.Context, cfg Config) (*Client, error) {
-	if cfg.Host == "" {
-		cfg.Host = "127.0.0.1"
+func (c *Client) Schema() string { return c.schema }
+
+func New(ctx context.Context, opts ...Option) (*Client, error) {
+	cfg := config{
+		host:    defaultHost,
+		port:    defaultPort,
+		sslMode: defaultSSLMode,
+		schema:  defaultSchema,
 	}
-	if cfg.Port == "" {
-		cfg.Port = "5432"
-	}
-	if cfg.SSLMode == "" {
-		cfg.SSLMode = "disable"
+
+	for _, opt := range opts {
+		opt(&cfg)
 	}
 
 	dsn := fmt.Sprintf(
 		"host=%s port=%s user=%s password=%s dbname=%s sslmode=%s",
-		cfg.Host, cfg.Port, cfg.User, cfg.Password, cfg.Database, cfg.SSLMode,
+		cfg.host, cfg.port, cfg.user, cfg.password, cfg.database, cfg.sslMode,
 	)
 
 	poolCfg, err := pgxpool.ParseConfig(dsn)
@@ -49,17 +127,19 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 		return nil, fmt.Errorf("parse postgres config: %w", err)
 	}
 
-	if cfg.MaxConns > 0 {
-		poolCfg.MaxConns = cfg.MaxConns
+	poolCfg.ConnConfig.RuntimeParams["search_path"] = cfg.schema
+
+	if cfg.maxConns > 0 {
+		poolCfg.MaxConns = cfg.maxConns
 	}
-	if cfg.MinConns > 0 {
-		poolCfg.MinConns = cfg.MinConns
+	if cfg.minConns > 0 {
+		poolCfg.MinConns = cfg.minConns
 	}
-	if cfg.MaxConnLifetime > 0 {
-		poolCfg.MaxConnLifetime = cfg.MaxConnLifetime
+	if cfg.maxConnLifetime > 0 {
+		poolCfg.MaxConnLifetime = cfg.maxConnLifetime
 	}
-	if cfg.MaxConnIdleTime > 0 {
-		poolCfg.MaxConnIdleTime = cfg.MaxConnIdleTime
+	if cfg.maxConnIdleTime > 0 {
+		poolCfg.MaxConnIdleTime = cfg.maxConnIdleTime
 	}
 
 	pool, err := pgxpool.NewWithConfig(ctx, poolCfg)
@@ -69,8 +149,9 @@ func New(ctx context.Context, cfg Config) (*Client, error) {
 
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
+
 		return nil, fmt.Errorf("ping postgres: %w", err)
 	}
 
-	return &Client{Pool: pool}, nil
+	return &Client{Pool: pool, schema: cfg.schema}, nil
 }

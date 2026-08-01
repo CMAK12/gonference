@@ -32,16 +32,40 @@ func Run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	df, err := dragonfly.NewClient(ctx, cfg.Dragonfly)
+	df, err := dragonfly.NewClient(ctx,
+		dragonfly.WithAddr(cfg.InMemoryDB.Addr),
+		dragonfly.WithPassword(cfg.InMemoryDB.Password),
+		dragonfly.WithDatabase(cfg.InMemoryDB.Database),
+	)
 	if err != nil {
 		return fmt.Errorf("connect dragonfly: %w", err)
 	}
 
-	pg, err := postgres.New(ctx, cfg.Postgres)
+	log.Info("connected to dragonfly",
+		"addr", cfg.InMemoryDB.Addr,
+		"db", cfg.InMemoryDB.Database,
+	)
+
+	pg, err := postgres.New(ctx,
+		postgres.WithAddr(cfg.RelationalDB.Host, cfg.RelationalDB.Port),
+		postgres.WithCredentials(cfg.RelationalDB.User, cfg.RelationalDB.Password),
+		postgres.WithDatabase(cfg.RelationalDB.Database),
+		postgres.WithSchema(cfg.RelationalDB.Schema),
+		postgres.WithSSLMode(cfg.RelationalDB.SSLMode),
+		postgres.WithPoolSize(cfg.RelationalDB.MaxConnections, cfg.RelationalDB.MinConnections),
+		postgres.WithConnLifetime(cfg.RelationalDB.MaxConnLifetime),
+		postgres.WithConnIdleTime(cfg.RelationalDB.MaxConnIdleTime),
+	)
 	if err != nil {
 		return fmt.Errorf("connect postgres: %w", err)
 	}
 	defer pg.Close()
+
+	log.Info("connected to postgres",
+		"addr", cfg.RelationalDB.Host+":"+cfg.RelationalDB.Port,
+		"db", cfg.RelationalDB.Database,
+		"schema", pg.Schema(),
+	)
 
 	svc := service.NewService(in_memory.NewStorage(df), relational.NewUnitOfWork(pg))
 
@@ -66,13 +90,15 @@ func Run() error {
 		return fmt.Errorf("create grpc server: %w", err)
 	}
 
-	grpcServer.SetServingStatus(healthServiceName, grpc_health_v1.HealthCheckResponse_SERVING)
-
 	grpcv1.RegisterGRPCV1Handler(grpcServer, svc)
 
 	serveErr := make(chan error, 1)
 
-	go func() { serveErr <- grpcServer.Serve() }()
+	go func() {
+		grpcServer.SetServingStatus(healthServiceName, grpc_health_v1.HealthCheckResponse_SERVING)
+
+		serveErr <- grpcServer.Serve()
+	}()
 
 	select {
 	case err := <-serveErr:

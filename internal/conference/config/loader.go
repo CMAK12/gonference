@@ -11,6 +11,8 @@ import (
 const (
 	DriverPostgres  = "postgres"
 	DriverDragonfly = "dragonfly"
+
+	serviceSchema = "conference"
 )
 
 func MustLoad() Config {
@@ -31,18 +33,26 @@ func MustLoad() Config {
 
 	cfg.GRPC.Reflection = getEnvBool("GRPC_REFLECTION", false)
 
-	cfg.Storage.Driver = getEnv("STORAGE_DRIVER", DriverPostgres)
+	cfg.RelationalDB.Driver = getEnv("STORAGE_DRIVER", DriverPostgres)
 
-	cfg.Postgres.Host = getEnv("PG_HOST", "127.0.0.1")
-	cfg.Postgres.Port = getEnv("PG_PORT", "5432")
-	cfg.Postgres.User = getEnv("PG_USER", "postgres")
-	cfg.Postgres.Password = getEnv("PG_PASSWORD", "")
-	cfg.Postgres.Database = getEnv("PG_DATABASE", "gonference")
-	cfg.Postgres.SSLMode = getEnv("PG_SSLMODE", "disable")
+	cfg.RelationalDB.Host = getEnv("PG_HOST", "127.0.0.1")
+	cfg.RelationalDB.Port = getEnv("PG_PORT", "5432")
+	cfg.RelationalDB.User = getEnv("PG_USER", DriverPostgres)
+	cfg.RelationalDB.Password = getEnv("PG_PASSWORD", "")
+	cfg.RelationalDB.Database = getEnv("PG_DATABASE", "gonference")
+	cfg.RelationalDB.Schema = getEnv("PG_SCHEMA", serviceSchema)
+	cfg.RelationalDB.SSLMode = getEnv("PG_SSLMODE", "disable")
 
-	cfg.Dragonfly.Addr = getEnv("DRAGONFLY_ADDR", "127.0.0.1:6379")
-	cfg.Dragonfly.Password = getEnv("DRAGONFLY_PASSWORD", "")
-	cfg.Dragonfly.DB = getEnvInt("DRAGONFLY_DB", 0)
+	cfg.RelationalDB.MaxConnections = getEnvInt32("PG_MAX_CONNECTIONS", 0)
+	cfg.RelationalDB.MinConnections = getEnvInt32("PG_MIN_CONNECTIONS", 0)
+	cfg.RelationalDB.MaxConnLifetime = getEnvDuration("PG_MAX_CONN_LIFETIME", 0)
+	cfg.RelationalDB.MaxConnIdleTime = getEnvDuration("PG_MAX_CONN_IDLE_TIME", 0)
+
+	cfg.InMemoryDB.Driver = getEnv("CACHE_DRIVER", DriverDragonfly)
+
+	cfg.InMemoryDB.Addr = getEnv("DRAGONFLY_ADDR", "127.0.0.1:6379")
+	cfg.InMemoryDB.Password = getEnv("DRAGONFLY_PASSWORD", "")
+	cfg.InMemoryDB.Database = getEnvInt("DRAGONFLY_DB", 0)
 
 	return cfg
 }
@@ -58,6 +68,14 @@ func getEnv(key, fallback string) string {
 func getEnvInt(key string, fallback int) int {
 	if v, err := strconv.Atoi(os.Getenv(key)); err == nil {
 		return v
+	}
+
+	return fallback
+}
+
+func getEnvInt32(key string, fallback int32) int32 {
+	if v, err := strconv.ParseInt(os.Getenv(key), 10, 32); err == nil {
+		return int32(v)
 	}
 
 	return fallback

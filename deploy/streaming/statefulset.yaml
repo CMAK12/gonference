@@ -38,11 +38,11 @@ spec:
                     livenessProbe:
                         grpc:
                             port: 10003
-                        initialDelaySeconds: 15
+                        initialDelaySeconds: 30
                         periodSeconds: 10
                         failureThreshold: 3
                     readinessProbe:
                         grpc:
                             port: 10003
-                        initialDelaySeconds: 5
+                        initialDelaySeconds: 30
                         periodSeconds: 10

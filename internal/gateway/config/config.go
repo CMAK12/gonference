@@ -26,5 +26,12 @@ type (
 	}
 
 	Client struct {
+		Conference struct {
+			Addr string
+		}
+
+		Streaming struct {
+			Addr string
+		}
 	}
 )

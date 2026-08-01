@@ -26,6 +26,9 @@ func MustLoad() Config {
 
 	cfg.GRPC.Reflection = getEnvBool("GRPC_REFLECTION", false)
 
+	cfg.Client.Conference.Addr = getEnv("CLIENT_CONFERENCE_ADDR", "localhost:10002")
+	cfg.Client.Streaming.Addr = getEnv("CLIENT_STREAMING_ADDR", "localhost:10003")
+
 	return cfg
 }
 

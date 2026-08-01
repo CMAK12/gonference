@@ -38,12 +38,12 @@ spec:
                         grpc:
                             port: 10002
 
-                        initialDelaySeconds: 5
-                        periodSeconds: 4
+                        initialDelaySeconds: 30
+                        periodSeconds: 10
                         failureThreshold: 3
                     readinessProbe:
                         grpc:
                             port: 10002
 
-                        initialDelaySeconds: 5
-                        periodSeconds: 4
+                        initialDelaySeconds: 30
+                        periodSeconds: 10

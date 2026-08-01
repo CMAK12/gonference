@@ -12,6 +12,7 @@ data:
     PG_HOST: "postgres"
     PG_PORT: "5432"
     PG_DATABASE: "gonference"
+    PG_SCHEMA: "conference"
     PG_SSLMODE: "disable"
 
     DRAGONFLY_ADDR: "dragonfly:6379"

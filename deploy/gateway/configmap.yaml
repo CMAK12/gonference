@@ -6,3 +6,5 @@ metadata:
 
 data:
     GRPC_ADDR: ":10001"
+
+    CLIENT_CONFERENCE_ADDR: "conference-service:10002"
