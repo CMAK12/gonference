@@ -1,14 +1,7 @@
 package grpcv1
 
-import (
-	"google.golang.org/grpc"
-)
+import "google.golang.org/grpc"
 
-type Handler struct {
-}
-
-func NewHandler(server grpc.ServiceRegistrar, s Signaling) *Handler {
+func RegisterGRPCV1Handler(server grpc.ServiceRegistrar, s Signaling) {
 	registerSignalingServer(server, s)
-
-	return &Handler{}
 }

@@ -8,7 +8,6 @@ import (
 	"syscall"
 
 	infraserver "github.com/CMAK12/gonference/infra/server/grpc"
-	infrahealth "github.com/CMAK12/gonference/infra/server/health"
 	"github.com/CMAK12/gonference/internal/gateway/config"
 	grpcv1 "github.com/CMAK12/gonference/internal/gateway/handler/grpc/v1"
 	"github.com/CMAK12/gonference/internal/gateway/service"
@@ -42,14 +41,14 @@ func Run() error {
 			MinTime:             cfg.GRPC.MinClientPingInterval,
 			PermitWithoutStream: true,
 		}),
+		infraserver.WithHealthCheck(true),
 		infraserver.WithReflection(cfg.GRPC.Reflection),
 	)
 	if err != nil {
 		return fmt.Errorf("create grpc server: %w", err)
 	}
 
-	healthServer := infrahealth.NewServer(grpcServer)
-	healthServer.SetServingStatus("", grpc_health_v1.HealthCheckResponse_SERVING)
+	grpcServer.SetServingStatus("GATEWAY_V1", grpc_health_v1.HealthCheckResponse_SERVING)
 
 	grpcv1.RegisterGRPCV1Handler(grpcServer, svc)
 
@@ -70,7 +69,7 @@ func Run() error {
 		log.Info("shutdown signal received, draining gateway")
 	}
 
-	healthServer.Shutdown()
+	grpcServer.SetServingStatus("GATEWAY_V1", grpc_health_v1.HealthCheckResponse_NOT_SERVING)
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.GRPC.ShutdownTimeout)
 	defer cancel()

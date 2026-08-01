@@ -2,31 +2,31 @@ apiVersion: apps/v1
 kind: Deployment
 
 metadata:
-    name: gateway-service
+    name: conference-service
 
 spec:
-    replicas: 1
+    replicas: 2
 
     selector:
         matchLabels:
-            app: gateway-service
+            app: conference-service
     template:
         metadata:
             labels:
-                app: gateway-service
+                app: conference-service
 
         spec:
             containers:
-                -   name: gateway-service
-                    image: gonference-gateway:v1
+                -   name: conference-service
+                    image: gonference-conference:v1
                     imagePullPolicy: IfNotPresent
                     ports:
-                        -   containerPort: 10001
+                        -   containerPort: 10002
                     envFrom:
                         -   configMapRef:
-                                name: gateway-config
+                                name: conference-config
                         -   secretRef:
-                                name: gateway-secret
+                                name: conference-secret
                     resources:
                         requests:
                             cpu: "100m"
@@ -36,14 +36,14 @@ spec:
                             memory: "512Mi"
                     livenessProbe:
                         grpc:
-                            port: 10001
+                            port: 10002
 
                         initialDelaySeconds: 5
                         periodSeconds: 4
                         failureThreshold: 3
                     readinessProbe:
                         grpc:
-                            port: 10001
+                            port: 10002
 
                         initialDelaySeconds: 5
                         periodSeconds: 4

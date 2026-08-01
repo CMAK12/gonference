@@ -11,6 +11,8 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/health"
+	healthpb "google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 
@@ -40,6 +42,7 @@ type Server struct {
 
 	log      *slog.Logger
 	listener net.Listener
+	health   *health.Server
 
 	shutdownTimeout time.Duration
 	served          atomic.Bool
@@ -62,7 +65,8 @@ type config struct {
 	stream []grpc.StreamServerInterceptor
 	extra  []grpc.ServerOption
 
-	reflection bool
+	reflection  bool
+	healthCheck bool
 }
 
 type Option func(*config)
@@ -123,6 +127,10 @@ func WithStreamInterceptors(in ...grpc.StreamServerInterceptor) Option {
 
 func WithReflection(enabled bool) Option {
 	return func(c *config) { c.reflection = enabled }
+}
+
+func WithHealthCheck(enabled bool) Option {
+	return func(c *config) { c.healthCheck = enabled }
 }
 
 func WithServerOptions(opts ...grpc.ServerOption) Option {
@@ -191,6 +199,12 @@ func New(addr string, opts ...Option) (*Server, error) {
 		reflection.Register(srv)
 	}
 
+	var healthSrv *health.Server
+	if cfg.healthCheck {
+		healthSrv = health.NewServer()
+		healthpb.RegisterHealthServer(srv, healthSrv)
+	}
+
 	listener, err := net.Listen("tcp", addr)
 	if err != nil {
 		srv.Stop()
@@ -202,8 +216,17 @@ func New(addr string, opts ...Option) (*Server, error) {
 		Server:          srv,
 		log:             log.With(slog.String("addr", listener.Addr().String())),
 		listener:        listener,
+		health:          healthSrv,
 		shutdownTimeout: cfg.shutdownTimeout,
 	}, nil
+}
+
+func (s *Server) SetServingStatus(service string, status healthpb.HealthCheckResponse_ServingStatus) {
+	if s.health == nil {
+		return
+	}
+
+	s.health.SetServingStatus(service, status)
 }
 
 func (s *Server) Addr() string {

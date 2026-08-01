@@ -19,7 +19,7 @@ FROM gcr.io/distroless/static:nonroot
 
 COPY --from=builder /out/streaming /usr/local/bin/streaming
 
-EXPOSE 9090
+EXPOSE 10003
 
 USER nonroot:nonroot
 

@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+
+metadata:
+    name: conference-config
+
+data:
+    GRPC_ADDR: ":10002"
+
+    STORAGE_DRIVER: "postgres"
+
+    PG_HOST: "postgres"
+    PG_PORT: "5432"
+    PG_DATABASE: "gonference"
+    PG_SSLMODE: "disable"
+
+    DRAGONFLY_ADDR: "dragonfly:6379"
+    DRAGONFLY_DB: "0"

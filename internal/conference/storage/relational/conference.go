@@ -15,7 +15,7 @@ type Conference struct {
 	db Querier
 }
 
-func NewConferenceStorage(db Querier) storage.ConferenceStorage {
+func NewConferenceStorage(db Querier) *Conference {
 	return &Conference{
 		db: db,
 	}

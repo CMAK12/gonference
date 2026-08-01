@@ -23,9 +23,6 @@ func New(sfu SFU) *Signaling {
 	}
 }
 
-// HandleOffer bootstraps a peer from the client's offer and returns the answer
-// to be delivered over the unary RPC. Every subsequent signaling message
-// (renegotiation offers/answers, leave) flows over the peer's DataChannel.
 func (s *Signaling) HandleOffer(message entity.SignalMessage) (entity.SignalMessage, error) {
 	if message.SDP == nil {
 		return entity.SignalMessage{}, fmt.Errorf("signaling.HandleOffer: missing offer SDP")

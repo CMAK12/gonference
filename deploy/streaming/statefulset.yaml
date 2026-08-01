@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: StatefulSet
+
+metadata:
+    name: streaming-service
+
+spec:
+    serviceName: "streaming-service"
+    replicas: 2
+
+    selector:
+        matchLabels:
+            app: streaming-service
+
+    template:
+        metadata:
+            labels:
+                app: streaming-service
+        spec:
+            containers:
+                -   name: streaming-service
+                    image: gonference-streaming:v1
+                    imagePullPolicy: IfNotPresent
+                    ports:
+                        -   containerPort: 10003
+                    envFrom:
+                        -   configMapRef:
+                                name: streaming-config
+                        -   secretRef:
+                                name: streaming-secret
+                    resources:
+                        requests:
+                            cpu: "100m"
+                            memory: "256Mi"
+                        limits:
+                            cpu: "1"
+                            memory: "1Gi"
+                    livenessProbe:
+                        grpc:
+                            port: 10003
+                        initialDelaySeconds: 15
+                        periodSeconds: 10
+                        failureThreshold: 3
+                    readinessProbe:
+                        grpc:
+                            port: 10003
+                        initialDelaySeconds: 5
+                        periodSeconds: 10

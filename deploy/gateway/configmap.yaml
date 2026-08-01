@@ -2,11 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 
 metadata:
-  name: gateway-config
+    name: gateway-config
 
 data:
-    POSTGRES_HOST: "postgres"
-    POSTGRES_PORT: "5432"
-    POSTGRES_USER: "admin"
-    POSTGRES_PASSWORD: "admin"
-    POSTGRES_DB: "gonference"
+    GRPC_ADDR: ":10001"

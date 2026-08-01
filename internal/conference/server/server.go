@@ -2,93 +2,105 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
-	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/CMAK12/gonference/infra/db/in-memory/dragonfly"
-	postgres2 "github.com/CMAK12/gonference/infra/db/relational/postgres"
+	"github.com/CMAK12/gonference/infra/db/relational/postgres"
 	infraserver "github.com/CMAK12/gonference/infra/server/grpc"
 	"github.com/CMAK12/gonference/internal/conference/config"
 	grpcv1 "github.com/CMAK12/gonference/internal/conference/handler/grpc/v1"
 	"github.com/CMAK12/gonference/internal/conference/service"
 	in_memory "github.com/CMAK12/gonference/internal/conference/storage/in-memory"
 	"github.com/CMAK12/gonference/internal/conference/storage/relational"
+	"google.golang.org/grpc/health/grpc_health_v1"
+	"google.golang.org/grpc/keepalive"
 )
 
-func Run() {
-	// DEPENDENCIES
+const (
+	serviceName       = "conference"
+	healthServiceName = "CONFERENCE_V1"
+)
 
-	slog.Info("Starting conference service")
-
-	ctx := context.Background()
+func Run() error {
+	log := slog.Default().With(slog.String("service", serviceName))
 
 	cfg := config.MustLoad()
 
-	df, err := dragonfly.NewClient(ctx, dragonfly.Config{
-		Addr:     cfg.Dragonfly.Addr,
-		Password: cfg.Dragonfly.Password,
-		DB:       cfg.Dragonfly.DB,
-	})
-	if err != nil {
-		slog.Error("Failed to connect to dragonfly server", "error", err)
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 
-		return
+	df, err := dragonfly.NewClient(ctx, cfg.Dragonfly)
+	if err != nil {
+		return fmt.Errorf("connect dragonfly: %w", err)
 	}
 
-	postgres, err := postgres2.New(ctx, postgres2.Config{
-		Host:            cfg.Postgres.Host,
-		Port:            cfg.Postgres.Port,
-		User:            cfg.Postgres.User,
-		Password:        cfg.Postgres.Password,
-		Database:        cfg.Postgres.Database,
-		SSLMode:         cfg.Postgres.SSLMode,
-		MaxConns:        cfg.Postgres.MaxConns,
-		MinConns:        cfg.Postgres.MinConns,
-		MaxConnLifetime: cfg.Postgres.MaxConnLifetime,
-		MaxConnIdleTime: cfg.Postgres.MaxConnIdleTime,
-	})
+	pg, err := postgres.New(ctx, cfg.Postgres)
 	if err != nil {
-		slog.Error("Failed to connect to postgres server", "error", err)
+		return fmt.Errorf("connect postgres: %w", err)
+	}
+	defer pg.Close()
 
-		return
+	svc := service.NewService(in_memory.NewStorage(df), relational.NewUnitOfWork(pg))
+
+	grpcServer, err := infraserver.New(cfg.GRPC.Addr,
+		infraserver.WithLogger(log),
+		infraserver.WithMessageSizes(cfg.GRPC.MaxRecvMsgSize, cfg.GRPC.MaxSendMsgSize),
+		infraserver.WithConnectionTimeout(cfg.GRPC.ConnectionTimeout),
+		infraserver.WithShutdownTimeout(cfg.GRPC.ShutdownTimeout),
+		infraserver.WithKeepalive(keepalive.ServerParameters{
+			MaxConnectionIdle: cfg.GRPC.MaxConnectionIdle,
+			Time:              cfg.GRPC.KeepaliveTime,
+			Timeout:           cfg.GRPC.KeepaliveTimeout,
+		}),
+		infraserver.WithKeepaliveEnforcement(keepalive.EnforcementPolicy{
+			MinTime:             cfg.GRPC.MinClientPingInterval,
+			PermitWithoutStream: true,
+		}),
+		infraserver.WithHealthCheck(true),
+		infraserver.WithReflection(cfg.GRPC.Reflection),
+	)
+	if err != nil {
+		return fmt.Errorf("create grpc server: %w", err)
 	}
 
-	inMemory := in_memory.NewStorage(df)
-
-	pg := relational.NewUnitOfWork(postgres)
-
-	svc := service.NewService(inMemory, pg)
-
-	grpcServer, err := infraserver.New(cfg.GRPC.Address)
-	if err != nil {
-		slog.Error("Failed to create gRPC server", slog.String("error", err.Error()))
-
-		return
-	}
+	grpcServer.SetServingStatus(healthServiceName, grpc_health_v1.HealthCheckResponse_SERVING)
 
 	grpcv1.RegisterGRPCV1Handler(grpcServer, svc)
 
-	// STARTUP
+	serveErr := make(chan error, 1)
 
-	go func() {
-		if err := grpcServer.Serve(); err != nil {
-			slog.Error("Failed to serve conference server", slog.String("error", err.Error()))
+	go func() { serveErr <- grpcServer.Serve() }()
 
-			return
+	select {
+	case err := <-serveErr:
+		if err != nil {
+			return fmt.Errorf("serve conference: %w", err)
 		}
-	}()
 
-	// STOPPING
+		log.Info("conference stopped")
 
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGTERM, syscall.SIGINT)
+		return nil
+	case <-ctx.Done():
+		log.Info("shutdown signal received, draining conference")
+	}
 
-	recSig := <-sigChan
-	slog.Info("Execution interrupted, shutting down conference service", slog.String("signal", recSig.String()))
+	grpcServer.SetServingStatus(healthServiceName, grpc_health_v1.HealthCheckResponse_NOT_SERVING)
 
-	grpcServer.GracefulStop()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.GRPC.ShutdownTimeout)
+	defer cancel()
 
-	slog.Info("Conference service stopped")
+	if err := grpcServer.Shutdown(shutdownCtx); err != nil {
+		return fmt.Errorf("shutdown conference: %w", err)
+	}
+
+	if err := <-serveErr; err != nil {
+		return fmt.Errorf("serve conference: %w", err)
+	}
+
+	log.Info("conference stopped")
+
+	return nil
 }

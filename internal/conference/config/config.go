@@ -1,11 +1,12 @@
 package config
 
 import (
+	"time"
+
 	"github.com/CMAK12/gonference/infra/db/in-memory/dragonfly"
 	"github.com/CMAK12/gonference/infra/db/relational/postgres"
 )
 
-// Config is the full configuration for the conference service.
 type Config struct {
 	GRPC      GRPC
 	Storage   Storage
@@ -14,11 +15,22 @@ type Config struct {
 }
 
 type GRPC struct {
-	Address string
+	Addr string
+
+	MaxRecvMsgSize int
+	MaxSendMsgSize int
+
+	ConnectionTimeout time.Duration
+	ShutdownTimeout   time.Duration
+
+	MaxConnectionIdle     time.Duration
+	KeepaliveTime         time.Duration
+	KeepaliveTimeout      time.Duration
+	MinClientPingInterval time.Duration
+
+	Reflection bool
 }
 
-// Storage selects which persistence backend the service uses.
 type Storage struct {
-	// Driver is "postgres" (relational) or "dragonfly" (in-memory).
 	Driver string
 }
