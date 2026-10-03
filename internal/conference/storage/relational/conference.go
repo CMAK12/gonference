@@ -23,7 +23,7 @@ func NewConferenceStorage(db Querier) *Conference {
 
 func (c *Conference) CreateConference(ctx context.Context, conf *entity.Conference) error {
 	const query = `
-		INSERT INTO conferences
+		INSERT INTO conference.conferences
 			(id, name, creator_id, invited_members, token, start_time, end_time, created_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
 
@@ -41,7 +41,7 @@ func (c *Conference) CreateConference(ctx context.Context, conf *entity.Conferen
 func (c *Conference) JoinConference(ctx context.Context, conf *entity.Conference) error {
 	const query = `
 		SELECT id, name, creator_id, invited_members, token, start_time, end_time, created_at
-		FROM conferences
+		FROM conference.conferences
 		WHERE id = $1`
 
 	err := c.db.QueryRow(ctx, query, conf.ID).Scan(

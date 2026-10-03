@@ -23,7 +23,10 @@ const (
 )
 
 type CreateConferenceRequest struct {
-	state          protoimpl.MessageState `protogen:"open.v1"`
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Name  string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`
+	// creator_id (field 2) is intentionally absent: the gateway resolves the
+	// creator from the request context, not from client input.
 	InvitedMembers []string               `protobuf:"bytes,3,rep,name=invited_members,json=invitedMembers,proto3" json:"invited_members,omitempty"`
 	StartTime      *timestamppb.Timestamp `protobuf:"bytes,4,opt,name=start_time,json=startTime,proto3" json:"start_time,omitempty"`
 	EndTime        *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=end_time,json=endTime,proto3" json:"end_time,omitempty"`
@@ -59,6 +62,13 @@ func (x *CreateConferenceRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use CreateConferenceRequest.ProtoReflect.Descriptor instead.
 func (*CreateConferenceRequest) Descriptor() ([]byte, []int) {
 	return file_gateway_v1_conference_proto_rawDescGZIP(), []int{0}
+}
+
+func (x *CreateConferenceRequest) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
 }
 
 func (x *CreateConferenceRequest) GetInvitedMembers() []string {
@@ -251,8 +261,9 @@ var File_gateway_v1_conference_proto protoreflect.FileDescriptor
 
 const file_gateway_v1_conference_proto_rawDesc = "" +
 	"\n" +
-	"\x1bgateway/v1/conference.proto\x12\x15gonference.gateway.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xb4\x01\n" +
-	"\x17CreateConferenceRequest\x12'\n" +
+	"\x1bgateway/v1/conference.proto\x12\x15gonference.gateway.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc8\x01\n" +
+	"\x17CreateConferenceRequest\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12'\n" +
 	"\x0finvited_members\x18\x03 \x03(\tR\x0einvitedMembers\x129\n" +
 	"\n" +
 	"start_time\x18\x04 \x01(\v2\x1a.google.protobuf.TimestampR\tstartTime\x125\n" +

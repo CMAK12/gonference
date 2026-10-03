@@ -3,14 +3,14 @@ CREATE SCHEMA IF NOT EXISTS conference;
 
 CREATE TABLE IF NOT EXISTS conference.conferences
 (
-    id              TEXT PRIMARY KEY,
-    name            TEXT        NOT NULL DEFAULT '',
-    creator_id      TEXT        NOT NULL DEFAULT '',
-    invited_members TEXT        NOT NULL DEFAULT '',
+    id              TEXT PRIMARY KEY DEFAULT uuidv7(),
+    name            TEXT        NOT NULL,
+    creator_id      TEXT        NOT NULL,
+    invited_members TEXT,
     token           TEXT        NOT NULL,
-    start_time      TIMESTAMPTZ NOT NULL,
-    end_time        TIMESTAMPTZ NOT NULL,
-    created_at      TIMESTAMPTZ NOT NULL
+    start_time      TIMESTAMPTZ,
+    end_time        TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS conferences_creator_id_idx ON conference.conferences (creator_id);

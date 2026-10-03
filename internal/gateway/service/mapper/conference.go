@@ -7,6 +7,7 @@ import (
 
 func ToConferenceCreateRequest(req *gatewaypb.CreateConferenceRequest) *confpb.CreateConferenceRequest {
 	return &confpb.CreateConferenceRequest{
+		Name:           req.GetName(),
 		InvitedMembers: req.GetInvitedMembers(),
 		StartTime:      req.GetStartTime(),
 		EndTime:        req.GetEndTime(),
