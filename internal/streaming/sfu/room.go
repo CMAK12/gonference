@@ -59,6 +59,30 @@ func (r *Room) AddPeer(offer webrtc.SessionDescription, id string) (webrtc.Sessi
 	return answer, peer, nil
 }
 
+func (r *Room) RemovePeer(id string) {
+	peer, ok := r.GetPeer(id)
+	if !ok {
+		return
+	}
+
+	r.removePeer(peer)
+}
+
+func (r *Room) Close() {
+	r.mux.Lock()
+	defer r.mux.Unlock()
+
+	for _, peer := range r.peers {
+		if err := peer.Close(); err != nil {
+			peer.logger.Error("Failed to close peer", slog.String("error", err.Error()))
+		}
+	}
+
+	for _, forwarder := range r.forwarders {
+		forwarder.Close()
+	}
+}
+
 func (r *Room) attachPeer(peer *Peer) {
 	id := peer.ID()
 
@@ -90,13 +114,38 @@ func (r *Room) attachPeer(peer *Peer) {
 	}
 }
 
-func (r *Room) RemovePeer(id string) {
-	peer, ok := r.GetPeer(id)
-	if !ok {
-		return
-	}
+func (r *Room) addIncomingTrack(from *Peer, remote *webrtc.TrackRemote) {
+	r.mux.Lock()
 
-	r.removePeer(peer)
+	forwarder := NewTrackForwarder(from, remote)
+	r.forwarders[remote.ID()] = forwarder
+
+	peers := make(map[string]*Peer, len(r.peers))
+	for peerID, peer := range r.peers {
+		if peerID != from.ID() {
+			peers[peerID] = peer
+		}
+	}
+	r.mux.Unlock()
+
+	forwarder.Start()
+
+	for peerID, peer := range peers {
+		local, err := forwarder.AddPeer(peerID)
+		if err != nil {
+			from.logger.Error("Failed to add peer to forwarder",
+				slog.String("peerId", peerID),
+				slog.String("error", err.Error()))
+			continue
+		}
+
+		if err := peer.AddTrackAndRenegotiate(local); err != nil {
+			from.logger.Error("Failed to renegotiate",
+				slog.String("peerId", peerID),
+				slog.String("error", err.Error()))
+			continue
+		}
+	}
 }
 
 func (r *Room) removePeer(peer *Peer) {
@@ -167,54 +216,5 @@ func (r *Room) broadcast(msg entity.SignalMessage, except *Peer) {
 		if err := peer.sendSignal(msg); err != nil {
 			peer.logger.Error("Failed to send signal message", slog.String("error", err.Error()))
 		}
-	}
-}
-
-func (r *Room) addIncomingTrack(from *Peer, remote *webrtc.TrackRemote) {
-	r.mux.Lock()
-
-	forwarder := NewTrackForwarder(from, remote)
-	r.forwarders[remote.ID()] = forwarder
-
-	peers := make(map[string]*Peer, len(r.peers))
-	for peerID, peer := range r.peers {
-		if peerID != from.ID() {
-			peers[peerID] = peer
-		}
-	}
-	r.mux.Unlock()
-
-	forwarder.Start()
-
-	for peerID, peer := range peers {
-		local, err := forwarder.AddPeer(peerID)
-		if err != nil {
-			from.logger.Error("Failed to add peer to forwarder",
-				slog.String("peerId", peerID),
-				slog.String("error", err.Error()))
-			continue
-		}
-
-		if err := peer.AddTrackAndRenegotiate(local); err != nil {
-			from.logger.Error("Failed to renegotiate",
-				slog.String("peerId", peerID),
-				slog.String("error", err.Error()))
-			continue
-		}
-	}
-}
-
-func (r *Room) Close() {
-	r.mux.Lock()
-	defer r.mux.Unlock()
-
-	for _, peer := range r.peers {
-		if err := peer.Close(); err != nil {
-			peer.logger.Error("Failed to close peer", slog.String("error", err.Error()))
-		}
-	}
-
-	for _, forwarder := range r.forwarders {
-		forwarder.Close()
 	}
 }

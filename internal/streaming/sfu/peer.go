@@ -100,83 +100,6 @@ func (p *Peer) ID() string {
 	return p.id
 }
 
-func (p *Peer) bindSignalingChannel(d *webrtc.DataChannel) {
-	p.mux.Lock()
-	p.dc = d
-	p.mux.Unlock()
-
-	d.OnOpen(func() {
-		p.logger.Info("Signaling data channel open")
-
-		p.mux.RLock()
-		hasTracks := len(p.outTracks) > 0
-		p.mux.RUnlock()
-
-		if hasTracks {
-			if err := p.Renegotiate(); err != nil {
-				p.logger.Error("Failed to renegotiate on data channel open", slog.String("error", err.Error()))
-			}
-		}
-	})
-
-	d.OnMessage(func(raw webrtc.DataChannelMessage) {
-		var msg entity.SignalMessage
-		if err := json.Unmarshal(raw.Data, &msg); err != nil {
-			p.logger.Error("Failed to unmarshal signaling message", slog.String("error", err.Error()))
-			return
-		}
-
-		p.handleSignal(msg)
-	})
-}
-
-func (p *Peer) Close() error {
-	p.closeOnce.Do(func() {
-		p.mux.Lock()
-		dc := p.dc
-		p.dc = nil
-		p.candidateQueue = nil
-		clear(p.inTracks)
-		clear(p.outTracks)
-		p.mux.Unlock()
-
-		p.negMux.Lock()
-		p.pendingNegotiation = false
-		p.negMux.Unlock()
-
-		var errs []error
-		if dc != nil {
-			if err := dc.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-				errs = append(errs, fmt.Errorf("close signaling channel: %w", err))
-			}
-		}
-
-		if err := p.conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-			errs = append(errs, fmt.Errorf("close peer connection: %w", err))
-		}
-
-		p.closeErr = errors.Join(errs...)
-	})
-
-	return p.closeErr
-}
-
-func (p *Peer) SendPLI(ssrc uint32) {
-	if err := p.conn.WriteRTCP([]rtcp.Packet{
-		&rtcp.PictureLossIndication{
-			MediaSSRC: ssrc,
-		},
-	}); err != nil {
-		p.logger.Error("Failed to send PLI", slog.String("error", err.Error()))
-	}
-
-	p.logger.Info(
-		"Sent PLI",
-		slog.String("peer", p.id),
-		slog.Uint64("ssrc", uint64(ssrc)),
-	)
-}
-
 func (p *Peer) CreateAnswer(offer webrtc.SessionDescription) (webrtc.SessionDescription, error) {
 	if err := p.conn.SetRemoteDescription(offer); err != nil {
 		return webrtc.SessionDescription{}, err
@@ -242,36 +165,6 @@ func (p *Peer) AddTrackAndRenegotiate(track *webrtc.TrackLocalStaticRTP) error {
 	return p.Renegotiate()
 }
 
-func (p *Peer) removeOutboundTracks(forwarders []*TrackForwarder) error {
-	var (
-		errs    []error
-		removed int
-	)
-
-	p.mux.Lock()
-	for _, forwarder := range forwarders {
-		id := forwarder.remote.ID()
-		sender, ok := p.outTracks[id]
-		if !ok {
-			continue
-		}
-		delete(p.outTracks, id)
-
-		if err := p.conn.RemoveTrack(sender); err != nil {
-			errs = append(errs, fmt.Errorf("remove track %s: %w", id, err))
-			continue
-		}
-		removed++
-	}
-	p.mux.Unlock()
-
-	if removed > 0 {
-		errs = append(errs, p.Renegotiate())
-	}
-
-	return errors.Join(errs...)
-}
-
 func (p *Peer) Renegotiate() error {
 	p.mux.RLock()
 	dc := p.dc
@@ -305,21 +198,81 @@ func (p *Peer) Renegotiate() error {
 	return p.sendSignal(msg)
 }
 
-func (p *Peer) sendSignal(msg entity.SignalMessage) error {
-	p.mux.RLock()
-	dc := p.dc
-	p.mux.RUnlock()
-
-	if dc == nil || dc.ReadyState() != webrtc.DataChannelStateOpen {
-		return fmt.Errorf("peer %s: signaling data channel not open", p.id)
+func (p *Peer) SendPLI(ssrc uint32) {
+	if err := p.conn.WriteRTCP([]rtcp.Packet{
+		&rtcp.PictureLossIndication{
+			MediaSSRC: ssrc,
+		},
+	}); err != nil {
+		p.logger.Error("Failed to send PLI", slog.String("error", err.Error()))
 	}
 
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("marshal signal message: %w", err)
-	}
+	p.logger.Info(
+		"Sent PLI",
+		slog.String("peer", p.id),
+		slog.Uint64("ssrc", uint64(ssrc)),
+	)
+}
 
-	return dc.SendText(string(data))
+func (p *Peer) Close() error {
+	p.closeOnce.Do(func() {
+		p.mux.Lock()
+		dc := p.dc
+		p.dc = nil
+		p.candidateQueue = nil
+		clear(p.inTracks)
+		clear(p.outTracks)
+		p.mux.Unlock()
+
+		p.negMux.Lock()
+		p.pendingNegotiation = false
+		p.negMux.Unlock()
+
+		var errs []error
+		if dc != nil {
+			if err := dc.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+				errs = append(errs, fmt.Errorf("close signaling channel: %w", err))
+			}
+		}
+
+		if err := p.conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			errs = append(errs, fmt.Errorf("close peer connection: %w", err))
+		}
+
+		p.closeErr = errors.Join(errs...)
+	})
+
+	return p.closeErr
+}
+
+func (p *Peer) bindSignalingChannel(d *webrtc.DataChannel) {
+	p.mux.Lock()
+	p.dc = d
+	p.mux.Unlock()
+
+	d.OnOpen(func() {
+		p.logger.Info("Signaling data channel open")
+
+		p.mux.RLock()
+		hasTracks := len(p.outTracks) > 0
+		p.mux.RUnlock()
+
+		if hasTracks {
+			if err := p.Renegotiate(); err != nil {
+				p.logger.Error("Failed to renegotiate on data channel open", slog.String("error", err.Error()))
+			}
+		}
+	})
+
+	d.OnMessage(func(raw webrtc.DataChannelMessage) {
+		var msg entity.SignalMessage
+		if err := json.Unmarshal(raw.Data, &msg); err != nil {
+			p.logger.Error("Failed to unmarshal signaling message", slog.String("error", err.Error()))
+			return
+		}
+
+		p.handleSignal(msg)
+	})
 }
 
 func (p *Peer) handleSignal(msg entity.SignalMessage) {
@@ -383,6 +336,23 @@ func (p *Peer) handleSignal(msg entity.SignalMessage) {
 	}
 }
 
+func (p *Peer) sendSignal(msg entity.SignalMessage) error {
+	p.mux.RLock()
+	dc := p.dc
+	p.mux.RUnlock()
+
+	if dc == nil || dc.ReadyState() != webrtc.DataChannelStateOpen {
+		return fmt.Errorf("peer %s: signaling data channel not open", p.id)
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal signal message: %w", err)
+	}
+
+	return dc.SendText(string(data))
+}
+
 func (p *Peer) flushCandidateQueue() {
 	p.mux.Lock()
 	defer p.mux.Unlock()
@@ -416,4 +386,34 @@ func (p *Peer) addOutboundTrack(track *webrtc.TrackLocalStaticRTP) (bool, error)
 	p.outTracks[track.ID()] = sender
 
 	return true, nil
+}
+
+func (p *Peer) removeOutboundTracks(forwarders []*TrackForwarder) error {
+	var (
+		errs    []error
+		removed int
+	)
+
+	p.mux.Lock()
+	for _, forwarder := range forwarders {
+		id := forwarder.remote.ID()
+		sender, ok := p.outTracks[id]
+		if !ok {
+			continue
+		}
+		delete(p.outTracks, id)
+
+		if err := p.conn.RemoveTrack(sender); err != nil {
+			errs = append(errs, fmt.Errorf("remove track %s: %w", id, err))
+			continue
+		}
+		removed++
+	}
+	p.mux.Unlock()
+
+	if removed > 0 {
+		errs = append(errs, p.Renegotiate())
+	}
+
+	return errors.Join(errs...)
 }
