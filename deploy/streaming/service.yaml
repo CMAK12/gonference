@@ -5,6 +5,7 @@ metadata:
     name: streaming-service
 
 spec:
+    clusterIP: None
     selector:
         app: streaming-service
     ports:

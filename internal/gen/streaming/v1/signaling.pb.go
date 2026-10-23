@@ -4,9 +4,10 @@
 // 	protoc        (unknown)
 // source: streaming/v1/signaling.proto
 
-package conference
+package streaming
 
 import (
+	_ "buf.build/gen/go/bufbuild/protovalidate/protocolbuffers/go/buf/validate"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -221,12 +222,13 @@ var File_streaming_v1_signaling_proto protoreflect.FileDescriptor
 
 const file_streaming_v1_signaling_proto_rawDesc = "" +
 	"\n" +
-	"\x1cstreaming/v1/signaling.proto\x12\x17gonference.signaling.v1\"\xf6\x01\n" +
-	"\rSignalMessage\x128\n" +
-	"\x04type\x18\x01 \x01(\x0e2$.gonference.signaling.v1.MessageTypeR\x04type\x12\x17\n" +
-	"\aroom_id\x18\x02 \x01(\tR\x06roomId\x12\x1b\n" +
-	"\tmember_id\x18\x03 \x01(\tR\bmemberId\x12\x15\n" +
-	"\x03sdp\x18\x04 \x01(\tH\x00R\x03sdp\x88\x01\x01\x12H\n" +
+	"\x1cstreaming/v1/signaling.proto\x12\x17gonference.signaling.v1\x1a\x1bbuf/validate/validate.proto\"\x9c\x02\n" +
+	"\rSignalMessage\x12B\n" +
+	"\x04type\x18\x01 \x01(\x0e2$.gonference.signaling.v1.MessageTypeB\b\xbaH\x05\x82\x01\x02\x18\x00R\x04type\x12\x1f\n" +
+	"\aroom_id\x18\x02 \x01(\tB\x06\xbaH\x03\xc8\x01\x01R\x06roomId\x12#\n" +
+	"\tmember_id\x18\x03 \x01(\tB\x06\xbaH\x03\xc8\x01\x01R\bmemberId\x12!\n" +
+	"\x03sdp\x18\x04 \x01(\tB\n" +
+	"\xbaH\a\xc8\x01\x01r\x02\x10\x01H\x00R\x03sdp\x88\x01\x01\x12H\n" +
 	"\tcandidate\x18\x05 \x01(\v2%.gonference.signaling.v1.ICECandidateH\x01R\tcandidate\x88\x01\x01B\x06\n" +
 	"\x04_sdpB\f\n" +
 	"\n" +
@@ -247,8 +249,8 @@ const file_streaming_v1_signaling_proto_rawDesc = "" +
 	"\tCANDIDATE\x10\x02\x12\t\n" +
 	"\x05LEAVE\x10\x032f\n" +
 	"\tSignaling\x12Y\n" +
-	"\aConnect\x12&.gonference.signaling.v1.SignalMessage\x1a&.gonference.signaling.v1.SignalMessageB\xef\x01\n" +
-	"\x1bcom.gonference.signaling.v1B\x0eSignalingProtoP\x01ZBgithub.com/CMAK12/gonference/internal/gen/conference/v1;conference\xa2\x02\x03GSX\xaa\x02\x17Gonference.Signaling.V1\xca\x02\x17Gonference\\Signaling\\V1\xe2\x02#Gonference\\Signaling\\V1\\GPBMetadata\xea\x02\x19Gonference::Signaling::V1b\x06proto3"
+	"\aConnect\x12&.gonference.signaling.v1.SignalMessage\x1a&.gonference.signaling.v1.SignalMessageB\xed\x01\n" +
+	"\x1bcom.gonference.signaling.v1B\x0eSignalingProtoP\x01Z@github.com/CMAK12/gonference/internal/gen/streaming/v1;streaming\xa2\x02\x03GSX\xaa\x02\x17Gonference.Signaling.V1\xca\x02\x17Gonference\\Signaling\\V1\xe2\x02#Gonference\\Signaling\\V1\\GPBMetadata\xea\x02\x19Gonference::Signaling::V1b\x06proto3"
 
 var (
 	file_streaming_v1_signaling_proto_rawDescOnce sync.Once

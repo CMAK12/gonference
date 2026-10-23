@@ -1,6 +1,7 @@
 package signaling
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/CMAK12/gonference/internal/streaming/entity"
@@ -23,11 +24,7 @@ func New(sfu SFU) *Signaling {
 	}
 }
 
-func (s *Signaling) HandleOffer(message entity.SignalMessage) (entity.SignalMessage, error) {
-	if message.SDP == nil {
-		return entity.SignalMessage{}, fmt.Errorf("signaling.HandleOffer: missing offer SDP")
-	}
-
+func (s *Signaling) HandleOffer(ctx context.Context, message entity.SignalMessage) (entity.SignalMessage, error) {
 	room := s.sfu.GetOrCreateRoom(message.RoomID)
 
 	offer := webrtc.SessionDescription{

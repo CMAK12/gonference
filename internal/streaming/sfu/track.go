@@ -13,7 +13,8 @@ type TrackForwarder struct {
 	mux    sync.RWMutex
 	locals map[string]*webrtc.TrackLocalStaticRTP
 
-	closed chan struct{}
+	closed    chan struct{}
+	closeOnce sync.Once
 }
 
 func NewTrackForwarder(peer *Peer, remote *webrtc.TrackRemote) *TrackForwarder {
@@ -77,5 +78,7 @@ func (tf *TrackForwarder) Start() {
 }
 
 func (tf *TrackForwarder) Close() {
-	close(tf.closed)
+	tf.closeOnce.Do(func() {
+		close(tf.closed)
+	})
 }

@@ -46,3 +46,10 @@ spec:
                             port: 10003
                         initialDelaySeconds: 30
                         periodSeconds: 10
+                    env:
+                        -   name: POD_NAME
+                            valueFrom:
+                                fieldRef:
+                                    fieldPath: metadata.name
+                        -   name: RELAY_ADVERTISE_ADDR
+                            value: "$(POD_NAME).streaming-service:10003"

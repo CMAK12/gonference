@@ -8,7 +8,6 @@ import (
 	"github.com/CMAK12/gonference/internal/conference/entity"
 )
 
-// conferenceKey builds the key a conference is stored under.
 func conferenceKey(id string) string {
 	return "conference:" + id
 }
@@ -19,7 +18,7 @@ func (c *Storage) CreateConference(ctx context.Context, conf *entity.Conference)
 		return fmt.Errorf("marshal conference %s: %w", conf.ID, err)
 	}
 
-	if err := c.client.Set(ctx, conferenceKey(conf.ID), string(payload), 0); err != nil {
+	if _, err := c.client.Set(ctx, conferenceKey(conf.ID), string(payload)); err != nil {
 		return fmt.Errorf("create conference %s: %w", conf.ID, err)
 	}
 

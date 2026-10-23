@@ -26,6 +26,15 @@ func MustLoad() Config {
 
 	cfg.GRPC.Reflection = getEnvBool("GRPC_REFLECTION", false)
 
+	cfg.Relay.AdvertiseAddr = getEnv("RELAY_ADVERTISE_ADDR", "localhost:10003")
+
+	cfg.Signaling.MaxResolveRetries = getEnvInt("SIGNALING_MAX_RESOLVE_RETRIES", 2)
+	cfg.Signaling.RelayOwnershipTTL = getEnvDuration("SIGNALING_RELAY_OWNERSHIP_TTL", 2*time.Minute)
+
+	cfg.InMemoryDB.Addr = getEnv("DRAGONFLY_ADDR", "127.0.0.1:6379")
+	cfg.InMemoryDB.Password = getEnv("DRAGONFLY_PASSWORD", "")
+	cfg.InMemoryDB.Database = getEnvInt("DRAGONFLY_DB", 0)
+
 	return cfg
 }
 

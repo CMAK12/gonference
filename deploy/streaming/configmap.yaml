@@ -6,3 +6,8 @@ metadata:
 
 data:
     GRPC_ADDR: ":10003"
+
+    SIGNALING_MAX_RESOLVE_RETRIES: "2"
+
+    DRAGONFLY_ADDR: "dragonfly:6379"
+    DRAGONFLY_DB: "0"

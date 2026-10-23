@@ -2,6 +2,7 @@ package dragonfly
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -16,33 +17,22 @@ type config struct {
 	database int
 }
 
-type Option func(*config)
-
-func WithAddr(addr string) Option {
-	return func(c *config) {
-		if addr != "" {
-			c.addr = addr
-		}
-	}
+type setConfig struct {
+	ttl  time.Duration
+	mode string
 }
 
-func WithPassword(password string) Option {
-	return func(c *config) { c.password = password }
-}
+type (
+	ConfigOption func(*config)
 
-func WithDatabase(database int) Option {
-	return func(c *config) {
-		if database > 0 {
-			c.database = database
-		}
-	}
-}
+	SetOption func(*setConfig)
+)
 
 type Client struct {
 	client *redis.Client
 }
 
-func NewClient(ctx context.Context, opts ...Option) (*Client, error) {
+func NewClient(ctx context.Context, opts ...ConfigOption) (*Client, error) {
 	cfg := config{
 		addr: defaultAddr,
 	}
@@ -67,9 +57,41 @@ func NewClient(ctx context.Context, opts ...Option) (*Client, error) {
 }
 
 func (c *Client) Get(ctx context.Context, key string) (string, error) {
-	return c.client.Get(ctx, key).Result()
+	value, err := c.client.Get(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("get %s: %w", key, err)
+	}
+
+	return value, nil
 }
 
-func (c *Client) Set(ctx context.Context, key string, value string, expiration time.Duration) error {
-	return c.client.Set(ctx, key, value, expiration).Err()
+func (c *Client) Set(ctx context.Context, key string, value string, opts ...SetOption) (bool, error) {
+	var cfg setConfig
+	for _, opt := range opts {
+		opt(&cfg)
+	}
+
+	err := c.client.SetArgs(ctx, key, value, redis.SetArgs{
+		Mode: cfg.mode,
+		TTL:  cfg.ttl,
+	}).Err()
+	if errors.Is(err, redis.Nil) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("set %s: %w", key, err)
+	}
+
+	return true, err
+}
+
+func (c *Client) Del(ctx context.Context, key string) error {
+	return c.client.Del(ctx, key).Err()
+}
+
+func (c *Client) Close() error {
+	return c.client.Close()
 }

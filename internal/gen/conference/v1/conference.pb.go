@@ -4,7 +4,7 @@
 // 	protoc        (unknown)
 // source: conference/v1/conference.proto
 
-package conference
+package streaming
 
 import (
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -210,7 +210,7 @@ func (x *JoinConferenceRequest) GetMemberId() string {
 	return ""
 }
 
-// TODO: Add fields for the response, such as token to connect to streaming service, expires_at, , etc.
+// TODO: Add fields for the response, such as token to connect to streaming service, expires_at, etc.
 type JoinConferenceResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	ConferenceId  string                 `protobuf:"bytes,1,opt,name=conference_id,json=conferenceId,proto3" json:"conference_id,omitempty"`
@@ -300,8 +300,8 @@ const file_conference_v1_conference_proto_rawDesc = "" +
 	"\n" +
 	"Conference\x12y\n" +
 	"\x10CreateConference\x121.gonference.conference.v1.CreateConferenceRequest\x1a2.gonference.conference.v1.CreateConferenceResponse\x12s\n" +
-	"\x0eJoinConference\x12/.gonference.conference.v1.JoinConferenceRequest\x1a0.gonference.conference.v1.JoinConferenceResponseB\xf5\x01\n" +
-	"\x1ccom.gonference.conference.v1B\x0fConferenceProtoP\x01ZBgithub.com/CMAK12/gonference/internal/gen/conference/v1;conference\xa2\x02\x03GCX\xaa\x02\x18Gonference.Conference.V1\xca\x02\x18Gonference\\Conference\\V1\xe2\x02$Gonference\\Conference\\V1\\GPBMetadata\xea\x02\x1aGonference::Conference::V1b\x06proto3"
+	"\x0eJoinConference\x12/.gonference.conference.v1.JoinConferenceRequest\x1a0.gonference.conference.v1.JoinConferenceResponseB\xf3\x01\n" +
+	"\x1ccom.gonference.conference.v1B\x0fConferenceProtoP\x01Z@github.com/CMAK12/gonference/internal/gen/streaming/v1;streaming\xa2\x02\x03GCX\xaa\x02\x18Gonference.Conference.V1\xca\x02\x18Gonference\\Conference\\V1\xe2\x02$Gonference\\Conference\\V1\\GPBMetadata\xea\x02\x1aGonference::Conference::V1b\x06proto3"
 
 var (
 	file_conference_v1_conference_proto_rawDescOnce sync.Once

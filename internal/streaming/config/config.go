@@ -3,7 +3,10 @@ package config
 import "time"
 
 type Config struct {
-	GRPC GRPC
+	GRPC       GRPC
+	Relay      Relay
+	Signaling  Signaling
+	InMemoryDB InMemoryDB
 }
 
 type GRPC struct {
@@ -21,4 +24,19 @@ type GRPC struct {
 	MinClientPingInterval time.Duration
 
 	Reflection bool
+}
+
+type Relay struct {
+	AdvertiseAddr string
+}
+
+type Signaling struct {
+	MaxResolveRetries int
+	RelayOwnershipTTL time.Duration
+}
+
+type InMemoryDB struct {
+	Addr     string
+	Password string
+	Database int
 }

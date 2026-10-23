@@ -2,15 +2,17 @@ syntax = "proto3";
 
 package gonference.signaling.v1;
 
+import "buf/validate/validate.proto";
+
 service Signaling {
   rpc Connect(SignalMessage) returns (SignalMessage);
 }
 
 message SignalMessage {
-  MessageType type = 1;
-  string room_id = 2;
-  string member_id = 3;
-  optional string sdp = 4;
+  MessageType type = 1 [(buf.validate.field).enum = {in: [0]}];
+  string room_id = 2 [(buf.validate.field).required = true];
+  string member_id = 3 [(buf.validate.field).required = true];
+  optional string sdp = 4 [(buf.validate.field).string.min_len = 1, (buf.validate.field).required = true];
   optional ICECandidate candidate = 5;
 }
 

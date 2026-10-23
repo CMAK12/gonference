@@ -8,10 +8,10 @@ import (
 )
 
 type SFU struct {
-	api *webrtc.API
-
 	mux   sync.RWMutex
 	rooms map[string]*Room
+
+	api *webrtc.API
 }
 
 func New() (*SFU, error) {
@@ -67,16 +67,25 @@ func (s *SFU) GetOrCreateRoom(id string) *Room {
 
 func (s *SFU) RemoveRoom(id string) {
 	s.mux.Lock()
-	defer s.mux.Unlock()
-
+	room, ok := s.rooms[id]
 	delete(s.rooms, id)
+	s.mux.Unlock()
+
+	if ok {
+		room.Close()
+	}
 }
 
 func (s *SFU) Close() {
 	s.mux.Lock()
-	defer s.mux.Unlock()
-
+	rooms := make([]*Room, 0, len(s.rooms))
 	for _, room := range s.rooms {
+		rooms = append(rooms, room)
+	}
+	clear(s.rooms)
+	s.mux.Unlock()
+
+	for _, room := range rooms {
 		room.Close()
 	}
 }

@@ -3,18 +3,18 @@ package sfu
 import "github.com/pion/webrtc/v3"
 
 const (
-	VP8 uint8 = 120
+	VP8 webrtc.PayloadType = 120
 
-	OPUS uint8 = 109
+	OPUS webrtc.PayloadType = 109
 )
 
 var audioCodecs = []webrtc.RTPCodecParameters{
 	{
 		RTPCodecCapability: webrtc.RTPCodecCapability{
-			MimeType:  "audio/opus",
+			MimeType:  webrtc.MimeTypeOpus,
 			ClockRate: 48000,
 		},
-		PayloadType: 109,
+		PayloadType: OPUS,
 	},
 }
 
@@ -47,7 +47,7 @@ var videoCodecs = []webrtc.RTPCodecParameters{
 			MimeType:  webrtc.MimeTypeVP8,
 			ClockRate: 90000,
 		},
-		PayloadType: 120,
+		PayloadType: VP8,
 	},
 	//{
 	//	RTPCodecCapability: webrtc.RTPCodecCapability{

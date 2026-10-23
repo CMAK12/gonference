@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"buf.build/go/protovalidate"
+	protovalidatemw "github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/protovalidate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/health"
@@ -165,6 +167,11 @@ func New(addr string, opts ...Option) (*Server, error) {
 
 	log := cfg.log.With(slog.String("component", loggerComponent))
 
+	validator, err := protovalidate.New()
+	if err != nil {
+		return nil, fmt.Errorf("create validator: %w", err)
+	}
+
 	serverOpts := []grpc.ServerOption{
 		grpc.MaxRecvMsgSize(cfg.maxRecvMsgSize),
 		grpc.MaxSendMsgSize(cfg.maxSendMsgSize),
@@ -175,6 +182,7 @@ func New(addr string, opts ...Option) (*Server, error) {
 			[]grpc.UnaryServerInterceptor{
 				interceptors.NewUnaryRecovery(log),
 				interceptors.NewUnaryLogging(log),
+				protovalidatemw.UnaryServerInterceptor(validator),
 			},
 			cfg.unary...,
 		)...),
@@ -182,6 +190,7 @@ func New(addr string, opts ...Option) (*Server, error) {
 			[]grpc.StreamServerInterceptor{
 				interceptors.NewStreamRecovery(log),
 				interceptors.NewStreamLogging(log),
+				protovalidatemw.StreamServerInterceptor(validator),
 			},
 			cfg.stream...,
 		)...),

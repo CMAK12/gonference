@@ -7,6 +7,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/CMAK12/gonference/infra/db/in-memory/dragonfly"
 	infraserver "github.com/CMAK12/gonference/infra/server/grpc"
 	"github.com/CMAK12/gonference/internal/streaming/config"
 	grpcv1 "github.com/CMAK12/gonference/internal/streaming/handler/grpc/v1"
@@ -28,6 +29,25 @@ func Run() error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+
+	df, err := dragonfly.NewClient(ctx,
+		dragonfly.WithAddr(cfg.InMemoryDB.Addr),
+		dragonfly.WithPassword(cfg.InMemoryDB.Password),
+		dragonfly.WithDatabase(cfg.InMemoryDB.Database),
+	)
+	if err != nil {
+		return fmt.Errorf("connect dragonfly: %w", err)
+	}
+	defer func() {
+		if err := df.Close(); err != nil {
+			log.Error("close dragonfly", slog.String("error", err.Error()))
+		}
+	}()
+
+	log.Info("connected to dragonfly",
+		"addr", cfg.InMemoryDB.Addr,
+		"db", cfg.InMemoryDB.Database,
+	)
 
 	s, err := sfu.New()
 	if err != nil {
