@@ -16,12 +16,19 @@ import (
 
 const signalingChannelLabel = "signaling"
 
+type PeerHandlers struct {
+	OnTrack func(p *Peer, remote *webrtc.TrackRemote)
+	OnClose func(p *Peer)
+}
+
 type Peer struct {
 	id string
 
 	logger *slog.Logger
 	conn   *webrtc.PeerConnection
-	room   *Room
+
+	roomID   string
+	handlers PeerHandlers
 
 	negMux             sync.Mutex
 	pendingNegotiation bool
@@ -36,7 +43,7 @@ type Peer struct {
 	closeErr  error
 }
 
-func NewPeer(api *webrtc.API, room *Room, id string) (*Peer, error) {
+func NewPeer(api *webrtc.API, roomID, id string, handlers PeerHandlers) (*Peer, error) {
 	pc, err := api.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{
@@ -52,7 +59,8 @@ func NewPeer(api *webrtc.API, room *Room, id string) (*Peer, error) {
 		id:        id,
 		logger:    slog.Default().With("peer", id),
 		conn:      pc,
-		room:      room,
+		roomID:    roomID,
+		handlers:  handlers,
 		inTracks:  make(map[string]*webrtc.TrackRemote),
 		outTracks: make(map[string]*webrtc.RTPSender),
 	}
@@ -67,7 +75,7 @@ func NewPeer(api *webrtc.API, room *Room, id string) (*Peer, error) {
 
 	var cleanupOnce sync.Once
 	cleanup := func() {
-		peer.room.removePeer(peer)
+		peer.handlers.OnClose(peer)
 	}
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
@@ -83,7 +91,7 @@ func NewPeer(api *webrtc.API, room *Room, id string) (*Peer, error) {
 
 	pc.OnTrack(func(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		peer.addInboundTrack(remote)
-		peer.room.addIncomingTrack(peer, remote)
+		peer.handlers.OnTrack(peer, remote)
 	})
 
 	_, err = pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
@@ -190,7 +198,7 @@ func (p *Peer) Renegotiate() error {
 
 	msg := entity.SignalMessage{
 		Type:     entity.TypeOffer,
-		RoomID:   p.room.ID(),
+		RoomID:   p.roomID,
 		MemberID: p.id,
 		SDP:      &offer.SDP,
 	}
@@ -294,7 +302,7 @@ func (p *Peer) handleSignal(msg entity.SignalMessage) {
 
 		answerMsg := entity.SignalMessage{
 			Type:     entity.TypeAnswer,
-			RoomID:   p.room.ID(),
+			RoomID:   p.roomID,
 			MemberID: p.id,
 			SDP:      &answer.SDP,
 		}
@@ -329,7 +337,7 @@ func (p *Peer) handleSignal(msg entity.SignalMessage) {
 		}
 
 	case entity.TypeLeave:
-		p.room.removePeer(p)
+		p.handlers.OnClose(p)
 
 	default:
 		p.logger.Debug("Ignoring signaling message", slog.String("type", string(msg.Type)))

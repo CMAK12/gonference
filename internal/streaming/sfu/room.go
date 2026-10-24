@@ -44,7 +44,10 @@ func (r *Room) GetPeer(id string) (*Peer, bool) {
 }
 
 func (r *Room) AddPeer(offer webrtc.SessionDescription, id string) (webrtc.SessionDescription, *Peer, error) {
-	peer, err := NewPeer(r.api, r, id)
+	peer, err := NewPeer(r.api, r.id, id, PeerHandlers{
+		OnTrack: r.addIncomingTrack,
+		OnClose: r.removePeer,
+	})
 	if err != nil {
 		return webrtc.SessionDescription{}, nil, err
 	}
