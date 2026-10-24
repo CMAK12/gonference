@@ -7,7 +7,7 @@ import (
 	"github.com/CMAK12/gonference/internal/streaming/entity"
 	"github.com/CMAK12/gonference/internal/streaming/sfu"
 
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 )
 
 type SFU interface {

@@ -3,15 +3,15 @@ package service
 import (
 	"context"
 
-	pb "github.com/CMAK12/gonference/internal/gen/streaming/v1"
 	signalpb "github.com/CMAK12/gonference/internal/gen/streaming/v1"
 )
 
-func (s *Service) Connect(ctx context.Context, req *pb.SignalMessage) (*pb.SignalMessage, error) {
-	resp, err := s.signaling.Connect(ctx, signalpb.SignalMessage{
+func (s *Service) Connect(ctx context.Context, req *signalpb.SignalMessage) (*signalpb.SignalMessage, error) {
+	resp, err := s.signaling.Connect(ctx, &signalpb.SignalMessage{
 		Type:      req.GetType(),
 		RoomId:    req.GetRoomId(),
-		Sdp:       new(req.GetSdp()),
+		MemberId:  req.GetMemberId(),
+		Sdp:       req.Sdp,
 		Candidate: req.GetCandidate(),
 	})
 	if err != nil {

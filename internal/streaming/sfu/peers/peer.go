@@ -1,4 +1,4 @@
-package sfu
+package peers
 
 import (
 	"encoding/json"
@@ -11,14 +11,14 @@ import (
 	"github.com/CMAK12/gonference/internal/streaming/entity"
 
 	"github.com/pion/rtcp"
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 )
 
 const signalingChannelLabel = "signaling"
 
 type PeerHandlers struct {
-	OnTrack func(p *Peer, remote *webrtc.TrackRemote)
-	OnClose func(p *Peer)
+	OnTrack func(remote *webrtc.TrackRemote)
+	OnClose func()
 }
 
 type Peer struct {
@@ -75,23 +75,22 @@ func NewPeer(api *webrtc.API, roomID, id string, handlers PeerHandlers) (*Peer, 
 
 	var cleanupOnce sync.Once
 	cleanup := func() {
-		peer.handlers.OnClose(peer)
+		peer.handlers.OnClose()
 	}
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		peer.logger.Info("Connection state change", slog.String("state", state.String()))
-
 		switch state {
 		case webrtc.PeerConnectionStateClosed,
-			webrtc.PeerConnectionStateFailed,
-			webrtc.PeerConnectionStateDisconnected:
+			webrtc.PeerConnectionStateFailed:
 			cleanupOnce.Do(cleanup)
+		default:
+			peer.logger.Info("Connection state change", slog.String("state", state.String()))
 		}
 	})
 
 	pc.OnTrack(func(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
 		peer.addInboundTrack(remote)
-		peer.handlers.OnTrack(peer, remote)
+		peer.handlers.OnTrack(remote)
 	})
 
 	_, err = pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
@@ -106,6 +105,10 @@ func NewPeer(api *webrtc.API, roomID, id string, handlers PeerHandlers) (*Peer, 
 
 func (p *Peer) ID() string {
 	return p.id
+}
+
+func (p *Peer) Logger() *slog.Logger {
+	return p.logger
 }
 
 func (p *Peer) CreateAnswer(offer webrtc.SessionDescription) (webrtc.SessionDescription, error) {
@@ -160,7 +163,7 @@ func (p *Peer) AddICECandidate(ci webrtc.ICECandidateInit) error {
 }
 
 func (p *Peer) AddTrackAndRenegotiate(track *webrtc.TrackLocalStaticRTP) error {
-	added, err := p.addOutboundTrack(track)
+	added, err := p.AddOutboundTrack(track)
 	if err != nil {
 		return err
 	}
@@ -203,7 +206,7 @@ func (p *Peer) Renegotiate() error {
 		SDP:      &offer.SDP,
 	}
 
-	return p.sendSignal(msg)
+	return p.SendSignal(msg)
 }
 
 func (p *Peer) SendPLI(ssrc uint32) {
@@ -307,7 +310,7 @@ func (p *Peer) handleSignal(msg entity.SignalMessage) {
 			SDP:      &answer.SDP,
 		}
 
-		if err := p.sendSignal(answerMsg); err != nil {
+		if err := p.SendSignal(answerMsg); err != nil {
 			p.logger.Error("Failed to send answer", slog.String("error", err.Error()))
 		}
 
@@ -337,14 +340,14 @@ func (p *Peer) handleSignal(msg entity.SignalMessage) {
 		}
 
 	case entity.TypeLeave:
-		p.handlers.OnClose(p)
+		p.handlers.OnClose()
 
 	default:
 		p.logger.Debug("Ignoring signaling message", slog.String("type", string(msg.Type)))
 	}
 }
 
-func (p *Peer) sendSignal(msg entity.SignalMessage) error {
+func (p *Peer) SendSignal(msg entity.SignalMessage) error {
 	p.mux.RLock()
 	dc := p.dc
 	p.mux.RUnlock()
@@ -379,7 +382,7 @@ func (p *Peer) addInboundTrack(track *webrtc.TrackRemote) {
 	p.inTracks[track.ID()] = track
 }
 
-func (p *Peer) addOutboundTrack(track *webrtc.TrackLocalStaticRTP) (bool, error) {
+func (p *Peer) AddOutboundTrack(track *webrtc.TrackLocalStaticRTP) (bool, error) {
 	p.mux.Lock()
 	defer p.mux.Unlock()
 
@@ -396,15 +399,14 @@ func (p *Peer) addOutboundTrack(track *webrtc.TrackLocalStaticRTP) (bool, error)
 	return true, nil
 }
 
-func (p *Peer) removeOutboundTracks(forwarders []*TrackForwarder) error {
+func (p *Peer) RemoveOutboundTracks(trackIDs []string) error {
 	var (
 		errs    []error
 		removed int
 	)
 
 	p.mux.Lock()
-	for _, forwarder := range forwarders {
-		id := forwarder.remote.ID()
+	for _, id := range trackIDs {
 		sender, ok := p.outTracks[id]
 		if !ok {
 			continue

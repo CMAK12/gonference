@@ -3,8 +3,9 @@ package sfu
 import (
 	"sync"
 
+	"github.com/CMAK12/gonference/internal/streaming/sfu/codecs"
 	"github.com/pion/interceptor"
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 )
 
 type SFU struct {
@@ -16,13 +17,13 @@ type SFU struct {
 
 func New() (*SFU, error) {
 	mediaEngine := &webrtc.MediaEngine{}
-	for _, codec := range videoCodecs {
+	for _, codec := range codecs.Video {
 		if err := mediaEngine.RegisterCodec(codec, webrtc.RTPCodecTypeVideo); err != nil {
 			return nil, err
 		}
 	}
 
-	for _, codec := range audioCodecs {
+	for _, codec := range codecs.Audio {
 		if err := mediaEngine.RegisterCodec(codec, webrtc.RTPCodecTypeAudio); err != nil {
 			return nil, err
 		}
@@ -58,11 +59,23 @@ func (s *SFU) GetOrCreateRoom(id string) *Room {
 
 	room, exists := s.rooms[id]
 	if !exists {
-		room = NewRoom(s.api, id)
+		room = NewRoom(s.api, id, func() {
+			s.removeRoom(room)
+		})
 		s.rooms[id] = room
 	}
 
 	return room
+}
+
+func (s *SFU) removeRoom(room *Room) {
+	s.mux.Lock()
+	if s.rooms[room.ID()] == room {
+		delete(s.rooms, room.ID())
+	}
+	s.mux.Unlock()
+
+	room.Close()
 }
 
 func (s *SFU) RemoveRoom(id string) {

@@ -6,28 +6,53 @@ import (
 	"sync"
 
 	"github.com/CMAK12/gonference/internal/streaming/entity"
+	"github.com/CMAK12/gonference/internal/streaming/sfu/peers"
+	"github.com/CMAK12/gonference/internal/streaming/sfu/track"
 
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
+)
+
+type (
+	Peer interface {
+		ID() string
+		Logger() *slog.Logger
+		AddTrackAndRenegotiate(track *webrtc.TrackLocalStaticRTP) error
+		AddOutboundTrack(track *webrtc.TrackLocalStaticRTP) (bool, error)
+		RemoveOutboundTracks(trackIDs []string) error
+		SendSignal(msg entity.SignalMessage) error
+		Close() error
+	}
+
+	Forwarder interface {
+		PublisherID() string
+		AddPeer(id string) (*webrtc.TrackLocalStaticRTP, error)
+		RemovePeer(id string)
+		Close()
+	}
 )
 
 type Room struct {
 	id string
 
 	mux        sync.RWMutex
-	peers      map[string]*Peer
-	forwarders map[string]*TrackForwarder
+	peers      map[string]Peer
+	forwarders map[string]Forwarder
 
 	api    *webrtc.API
 	logger *slog.Logger
+
+	onEmpty func()
 }
 
-func NewRoom(api *webrtc.API, id string) *Room {
+func NewRoom(api *webrtc.API, id string, onEmpty func()) *Room {
 	return &Room{
 		id:         id,
 		api:        api,
 		logger:     slog.Default().With("room_id", id),
-		peers:      make(map[string]*Peer),
-		forwarders: make(map[string]*TrackForwarder),
+		peers:      make(map[string]Peer),
+		forwarders: make(map[string]Forwarder),
+
+		onEmpty: onEmpty,
 	}
 }
 
@@ -35,7 +60,7 @@ func (r *Room) ID() string {
 	return r.id
 }
 
-func (r *Room) GetPeer(id string) (*Peer, bool) {
+func (r *Room) GetPeer(id string) (Peer, bool) {
 	r.mux.RLock()
 	defer r.mux.RUnlock()
 
@@ -43,10 +68,15 @@ func (r *Room) GetPeer(id string) (*Peer, bool) {
 	return peer, ok
 }
 
-func (r *Room) AddPeer(offer webrtc.SessionDescription, id string) (webrtc.SessionDescription, *Peer, error) {
-	peer, err := NewPeer(r.api, r.id, id, PeerHandlers{
-		OnTrack: r.addIncomingTrack,
-		OnClose: r.removePeer,
+func (r *Room) AddPeer(offer webrtc.SessionDescription, id string) (webrtc.SessionDescription, Peer, error) {
+	var peer *peers.Peer
+	peer, err := peers.NewPeer(r.api, r.id, id, peers.PeerHandlers{
+		OnTrack: func(remote *webrtc.TrackRemote) {
+			r.addIncomingTrack(id, peer.SendPLI, remote)
+		},
+		OnClose: func() {
+			r.removePeer(peer)
+		},
 	})
 	if err != nil {
 		return webrtc.SessionDescription{}, nil, err
@@ -77,7 +107,7 @@ func (r *Room) Close() {
 
 	for _, peer := range r.peers {
 		if err := peer.Close(); err != nil {
-			peer.logger.Error("Failed to close peer", slog.String("error", err.Error()))
+			peer.Logger().Error("Failed to close peer", slog.String("error", err.Error()))
 		}
 	}
 
@@ -86,64 +116,70 @@ func (r *Room) Close() {
 	}
 }
 
-func (r *Room) attachPeer(peer *Peer) {
+func (r *Room) attachPeer(peer Peer) {
 	id := peer.ID()
 
 	r.mux.Lock()
 	replaced := r.peers[id]
 	r.peers[id] = peer
-	forwarders := make([]*TrackForwarder, 0, len(r.forwarders))
+
+	var detached detachedPeer
+	if replaced != nil {
+		detached = r.detachPeerLocked(id)
+	}
+
+	forwarders := make([]Forwarder, 0, len(r.forwarders))
 	for _, f := range r.forwarders {
-		forwarders = append(forwarders, f)
+		if f.PublisherID() != id {
+			forwarders = append(forwarders, f)
+		}
 	}
 	r.mux.Unlock()
 
 	if replaced != nil {
-		if err := replaced.Close(); err != nil {
-			replaced.logger.Error("Failed to close replaced peer", slog.String("error", err.Error()))
-		}
+		r.releasePeer(replaced, detached)
 	}
 
 	for _, forwarder := range forwarders {
 		local, err := forwarder.AddPeer(id)
 		if err != nil {
-			peer.logger.Error("Failed to add peer to forwarder", slog.String("error", err.Error()))
+			peer.Logger().Error("Failed to add peer to forwarder", slog.String("error", err.Error()))
 			continue
 		}
 
-		if _, err := peer.addOutboundTrack(local); err != nil {
-			peer.logger.Error("Failed to add track to peer connection", slog.String("error", err.Error()))
+		if _, err := peer.AddOutboundTrack(local); err != nil {
+			peer.Logger().Error("Failed to add track to peer connection", slog.String("error", err.Error()))
 		}
 	}
 }
 
-func (r *Room) addIncomingTrack(from *Peer, remote *webrtc.TrackRemote) {
+func (r *Room) addIncomingTrack(id string, sendPLI func(ssrc uint32), remote *webrtc.TrackRemote) {
 	r.mux.Lock()
 
-	forwarder := NewTrackForwarder(from, remote)
+	forwarder := track.NewForwarder(id, remote, sendPLI)
 	r.forwarders[remote.ID()] = forwarder
 
-	peers := make(map[string]*Peer, len(r.peers))
+	subscribers := make(map[string]Peer, len(r.peers))
 	for peerID, peer := range r.peers {
-		if peerID != from.ID() {
-			peers[peerID] = peer
+		if peerID != id {
+			subscribers[peerID] = peer
 		}
 	}
 	r.mux.Unlock()
 
 	forwarder.Start()
 
-	for peerID, peer := range peers {
+	for peerID, peer := range subscribers {
 		local, err := forwarder.AddPeer(peerID)
 		if err != nil {
-			from.logger.Error("Failed to add peer to forwarder",
+			r.logger.Error("Failed to add peer to forwarder",
 				slog.String("peerId", peerID),
 				slog.String("error", err.Error()))
 			continue
 		}
 
 		if err := peer.AddTrackAndRenegotiate(local); err != nil {
-			from.logger.Error("Failed to renegotiate",
+			r.logger.Error("Failed to renegotiate",
 				slog.String("peerId", peerID),
 				slog.String("error", err.Error()))
 			continue
@@ -151,7 +187,7 @@ func (r *Room) addIncomingTrack(from *Peer, remote *webrtc.TrackRemote) {
 	}
 }
 
-func (r *Room) removePeer(peer *Peer) {
+func (r *Room) removePeer(peer Peer) {
 	id := peer.ID()
 
 	r.mux.Lock()
@@ -160,41 +196,11 @@ func (r *Room) removePeer(peer *Peer) {
 		return
 	}
 	delete(r.peers, id)
-
-	var dead []*TrackForwarder
-	for trackID, forwarder := range r.forwarders {
-		if forwarder.peer == peer {
-			dead = append(dead, forwarder)
-			delete(r.forwarders, trackID)
-			continue
-		}
-		forwarder.RemovePeer(id)
-	}
-
-	if len(r.peers) == 0 {
-		r.mux.Unlock()
-		r.Close()
-	}
-
-	otherPeers := make([]*Peer, 0, len(r.peers))
-	for _, p := range r.peers {
-		otherPeers = append(otherPeers, p)
-	}
+	detached := r.detachPeerLocked(id)
+	isEmpty := len(r.peers) == 0
 	r.mux.Unlock()
 
-	for _, forwarder := range dead {
-		forwarder.Close()
-	}
-
-	if err := peer.Close(); err != nil {
-		peer.logger.Error("Failed to close peer", slog.String("error", err.Error()))
-	}
-
-	for _, p := range otherPeers {
-		if err := p.removeOutboundTracks(dead); err != nil {
-			p.logger.Error("Failed to remove outbound tracks", slog.String("error", err.Error()))
-		}
-	}
+	r.releasePeer(peer, detached)
 
 	leaveMsg := entity.SignalMessage{
 		Type:     entity.TypeLeave,
@@ -203,21 +209,73 @@ func (r *Room) removePeer(peer *Peer) {
 	}
 
 	r.broadcast(leaveMsg, peer)
+
+	if isEmpty {
+		r.onEmpty()
+	}
 }
 
-func (r *Room) broadcast(msg entity.SignalMessage, except *Peer) {
+type detachedPeer struct {
+	forwarders []Forwarder
+	trackIDs   []string
+	others     []Peer
+}
+
+func (r *Room) detachPeerLocked(id string) detachedPeer {
+	var d detachedPeer
+	for trackID, forwarder := range r.forwarders {
+		if forwarder.PublisherID() == id {
+			d.forwarders = append(d.forwarders, forwarder)
+			d.trackIDs = append(d.trackIDs, trackID)
+			delete(r.forwarders, trackID)
+			continue
+		}
+		forwarder.RemovePeer(id)
+	}
+
+	d.others = make([]Peer, 0, len(r.peers))
+	for peerID, p := range r.peers {
+		if peerID != id {
+			d.others = append(d.others, p)
+		}
+	}
+
+	return d
+}
+
+func (r *Room) releasePeer(peer Peer, d detachedPeer) {
+	for _, forwarder := range d.forwarders {
+		forwarder.Close()
+	}
+
+	if err := peer.Close(); err != nil {
+		peer.Logger().Error("Failed to close peer", slog.String("error", err.Error()))
+	}
+
+	if len(d.trackIDs) == 0 {
+		return
+	}
+
+	for _, p := range d.others {
+		if err := p.RemoveOutboundTracks(d.trackIDs); err != nil {
+			p.Logger().Error("Failed to remove outbound tracks", slog.String("error", err.Error()))
+		}
+	}
+}
+
+func (r *Room) broadcast(msg entity.SignalMessage, except Peer) {
 	r.mux.RLock()
-	peers := make([]*Peer, 0, len(r.peers))
+	recipients := make([]Peer, 0, len(r.peers))
 	for _, p := range r.peers {
 		if p != except {
-			peers = append(peers, p)
+			recipients = append(recipients, p)
 		}
 	}
 	r.mux.RUnlock()
 
-	for _, peer := range peers {
-		if err := peer.sendSignal(msg); err != nil {
-			peer.logger.Error("Failed to send signal message", slog.String("error", err.Error()))
+	for _, peer := range recipients {
+		if err := peer.SendSignal(msg); err != nil {
+			peer.Logger().Error("Failed to send signal message", slog.String("error", err.Error()))
 		}
 	}
 }

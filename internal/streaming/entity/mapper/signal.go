@@ -4,7 +4,7 @@ import (
 	impb "github.com/CMAK12/gonference/internal/gen/streaming/v1"
 	"github.com/CMAK12/gonference/internal/streaming/entity"
 
-	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v4"
 )
 
 func MapProtoToMessage(msg *impb.SignalMessage) entity.SignalMessage {

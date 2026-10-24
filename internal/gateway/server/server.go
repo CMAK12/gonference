@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/CMAK12/gonference/infra/client/conference"
+	"github.com/CMAK12/gonference/infra/client/streaming"
 	infraserver "github.com/CMAK12/gonference/infra/server/grpc"
 	"github.com/CMAK12/gonference/internal/gateway/config"
 	grpcv1 "github.com/CMAK12/gonference/internal/gateway/handler/grpc/v1"
@@ -39,7 +40,19 @@ func Run() error {
 
 	log.Info("conference client ready", "addr", cfg.Client.Conference.Addr)
 
-	svc := service.New(conferenceClient)
+	streamingClient, err := streaming.NewClient(cfg.Client.Streaming.Addr)
+	if err != nil {
+		return fmt.Errorf("create streaming client: %w", err)
+	}
+	defer func() {
+		if err := streamingClient.Close(); err != nil {
+			log.Error("close streaming client", slog.String("error", err.Error()))
+		}
+	}()
+
+	log.Info("streaming client ready", "addr", cfg.Client.Streaming.Addr)
+
+	svc := service.New(conferenceClient, streamingClient)
 
 	grpcServer, err := infraserver.New(cfg.GRPC.Addr,
 		infraserver.WithLogger(log),

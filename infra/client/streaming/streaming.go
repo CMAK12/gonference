@@ -30,22 +30,17 @@ func NewClient(addr string) (*Client, error) {
 	}, nil
 }
 
-func (c *Client) Connect(ctx context.Context, roomID, memberID, offer string) (string, error) {
-	resp, err := c.Signaling.Connect(ctx, &gnpb.SignalMessage{
-		Type:     gnpb.MessageType_OFFER,
-		RoomId:   roomID,
-		MemberId: memberID,
-		Sdp:      &offer,
-	})
+func (c *Client) Connect(ctx context.Context, req *gnpb.SignalMessage) (*gnpb.SignalMessage, error) {
+	resp, err := c.Signaling.Connect(ctx, req)
 	if err != nil {
-		return "", fmt.Errorf("streaming.Connect: %w", err)
+		return nil, fmt.Errorf("streaming.Connect: %w", err)
 	}
 
 	if resp.Sdp == nil {
-		return "", fmt.Errorf("streaming.Connect: empty answer SDP")
+		return nil, fmt.Errorf("streaming.Connect: empty answer SDP")
 	}
 
-	return *resp.Sdp, nil
+	return resp, nil
 }
 
 func (c *Client) Close() error {
@@ -80,13 +75,13 @@ func (p *Pool) Get(podAddr string) (*Client, error) {
 	return conn, nil
 }
 
-func (p *Pool) Connect(ctx context.Context, podAddr, roomID, memberID, offer string) (string, error) {
+func (p *Pool) Connect(ctx context.Context, podAddr string, req *gnpb.SignalMessage) (*gnpb.SignalMessage, error) {
 	conn, err := p.Get(podAddr)
 	if err != nil {
-		return "", fmt.Errorf("streaming.Connect: %w", err)
+		return nil, fmt.Errorf("streaming.Connect: %w", err)
 	}
 
-	return conn.Connect(ctx, roomID, memberID, offer)
+	return conn.Connect(ctx, req)
 }
 
 func (p *Pool) Remove(podAddr string) error {
