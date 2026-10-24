@@ -10,62 +10,30 @@ import (
 
 	"github.com/CMAK12/gonference/internal/streaming/entity"
 
-	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
 )
 
 const signalingChannelLabel = "signaling"
 
-type PeerHandlers struct {
-	OnTrack func(remote *webrtc.TrackRemote)
-	OnClose func()
-}
-
 type Peer struct {
-	id string
-
-	logger *slog.Logger
-	conn   *webrtc.PeerConnection
-
-	roomID   string
-	handlers PeerHandlers
+	*connection
 
 	negMux             sync.Mutex
 	pendingNegotiation bool
-
-	mux            sync.RWMutex
-	dc             *webrtc.DataChannel
-	inTracks       map[string]*webrtc.TrackRemote
-	outTracks      map[string]*webrtc.RTPSender
-	candidateQueue []webrtc.ICECandidateInit
-
-	closeOnce sync.Once
-	closeErr  error
+	dc                 *webrtc.DataChannel
 }
 
-func NewPeer(api *webrtc.API, roomID, id string, handlers PeerHandlers) (*Peer, error) {
-	pc, err := api.NewPeerConnection(webrtc.Configuration{
-		ICEServers: []webrtc.ICEServer{
-			{
-				URLs: []string{"stun:stun.l.google.com:19302"},
-			},
-		},
-	})
+func NewPeer(api *webrtc.API, roomID, id string, callbacks Callbacks) (*Peer, error) {
+	conn, err := newConnection(api, roomID, id, callbacks)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("new connection: %w", err)
 	}
 
 	peer := &Peer{
-		id:        id,
-		logger:    slog.Default().With("peer", id),
-		conn:      pc,
-		roomID:    roomID,
-		handlers:  handlers,
-		inTracks:  make(map[string]*webrtc.TrackRemote),
-		outTracks: make(map[string]*webrtc.RTPSender),
+		connection: conn,
 	}
 
-	pc.OnDataChannel(func(d *webrtc.DataChannel) {
+	peer.pc.OnDataChannel(func(d *webrtc.DataChannel) {
 		if d.Label() != signalingChannelLabel {
 			return
 		}
@@ -73,93 +41,22 @@ func NewPeer(api *webrtc.API, roomID, id string, handlers PeerHandlers) (*Peer, 
 		peer.bindSignalingChannel(d)
 	})
 
-	var cleanupOnce sync.Once
-	cleanup := func() {
-		peer.handlers.OnClose()
-	}
-
-	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
-		switch state {
-		case webrtc.PeerConnectionStateClosed,
-			webrtc.PeerConnectionStateFailed:
-			cleanupOnce.Do(cleanup)
-		default:
-			peer.logger.Info("Connection state change", slog.String("state", state.String()))
-		}
-	})
-
-	pc.OnTrack(func(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		peer.addInboundTrack(remote)
-		peer.handlers.OnTrack(remote)
-	})
-
-	_, err = pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
+	_, err = peer.pc.AddTransceiverFromKind(webrtc.RTPCodecTypeVideo, webrtc.RTPTransceiverInit{
 		Direction: webrtc.RTPTransceiverDirectionRecvonly,
 	})
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(fmt.Errorf("add video transceiver: %w", err), conn.close())
 	}
 
 	return peer, nil
 }
 
-func (p *Peer) ID() string {
-	return p.id
-}
-
-func (p *Peer) Logger() *slog.Logger {
-	return p.logger
-}
-
-func (p *Peer) CreateAnswer(offer webrtc.SessionDescription) (webrtc.SessionDescription, error) {
-	if err := p.conn.SetRemoteDescription(offer); err != nil {
-		return webrtc.SessionDescription{}, err
-	}
-
-	p.flushCandidateQueue()
-
-	answer, err := p.conn.CreateAnswer(nil)
-	if err != nil {
-		return webrtc.SessionDescription{}, err
-	}
-
-	if err = p.conn.SetLocalDescription(answer); err != nil {
-		return webrtc.SessionDescription{}, err
-	}
-
-	<-webrtc.GatheringCompletePromise(p.conn)
-
-	return *p.conn.LocalDescription(), nil
-}
-
-func (p *Peer) CreateOffer() (webrtc.SessionDescription, error) {
-	offer, err := p.conn.CreateOffer(nil)
-	if err != nil {
-		return webrtc.SessionDescription{}, err
-	}
-
-	if err = p.conn.SetLocalDescription(offer); err != nil {
-		return webrtc.SessionDescription{}, err
-	}
-
-	<-webrtc.GatheringCompletePromise(p.conn)
-
-	return *p.conn.LocalDescription(), nil
-}
-
-func (p *Peer) ValidateAnswer(answer webrtc.SessionDescription) error {
-	return p.conn.SetRemoteDescription(answer)
-}
-
-func (p *Peer) AddICECandidate(ci webrtc.ICECandidateInit) error {
-	p.mux.Lock()
-	defer p.mux.Unlock()
-
-	if p.conn.RemoteDescription() == nil {
-		p.candidateQueue = append(p.candidateQueue, ci)
-		return nil
-	}
-	return p.conn.AddICECandidate(ci)
+func (p *Peer) NotifyLeave(memberID string) error {
+	return p.SendSignal(entity.SignalMessage{
+		Type:     entity.TypeLeave,
+		RoomID:   p.roomID,
+		MemberID: memberID,
+	})
 }
 
 func (p *Peer) AddTrackAndRenegotiate(track *webrtc.TrackLocalStaticRTP) error {
@@ -188,7 +85,7 @@ func (p *Peer) Renegotiate() error {
 	p.negMux.Lock()
 	defer p.negMux.Unlock()
 
-	if p.conn.SignalingState() != webrtc.SignalingStateStable {
+	if p.pc.SignalingState() != webrtc.SignalingStateStable {
 		p.pendingNegotiation = true
 		return nil
 	}
@@ -209,51 +106,28 @@ func (p *Peer) Renegotiate() error {
 	return p.SendSignal(msg)
 }
 
-func (p *Peer) SendPLI(ssrc uint32) {
-	if err := p.conn.WriteRTCP([]rtcp.Packet{
-		&rtcp.PictureLossIndication{
-			MediaSSRC: ssrc,
-		},
-	}); err != nil {
-		p.logger.Error("Failed to send PLI", slog.String("error", err.Error()))
+func (p *Peer) Close() error {
+	p.mux.Lock()
+	dc := p.dc
+	p.dc = nil
+	p.mux.Unlock()
+
+	p.negMux.Lock()
+	p.pendingNegotiation = false
+	p.negMux.Unlock()
+
+	var errs []error
+	if dc != nil {
+		if err := dc.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			errs = append(errs, fmt.Errorf("close signaling channel: %w", err))
+		}
 	}
 
-	p.logger.Info(
-		"Sent PLI",
-		slog.String("peer", p.id),
-		slog.Uint64("ssrc", uint64(ssrc)),
-	)
-}
+	if err := p.close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		errs = append(errs, fmt.Errorf("close peer connection: %w", err))
+	}
 
-func (p *Peer) Close() error {
-	p.closeOnce.Do(func() {
-		p.mux.Lock()
-		dc := p.dc
-		p.dc = nil
-		p.candidateQueue = nil
-		clear(p.inTracks)
-		clear(p.outTracks)
-		p.mux.Unlock()
-
-		p.negMux.Lock()
-		p.pendingNegotiation = false
-		p.negMux.Unlock()
-
-		var errs []error
-		if dc != nil {
-			if err := dc.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-				errs = append(errs, fmt.Errorf("close signaling channel: %w", err))
-			}
-		}
-
-		if err := p.conn.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-			errs = append(errs, fmt.Errorf("close peer connection: %w", err))
-		}
-
-		p.closeErr = errors.Join(errs...)
-	})
-
-	return p.closeErr
+	return errors.Join(errs...)
 }
 
 func (p *Peer) bindSignalingChannel(d *webrtc.DataChannel) {
@@ -321,7 +195,7 @@ func (p *Peer) handleSignal(msg entity.SignalMessage) {
 		}
 
 		p.negMux.Lock()
-		err := p.ValidateAnswer(webrtc.SessionDescription{
+		err := p.SetAnswer(webrtc.SessionDescription{
 			Type: webrtc.SDPTypeAnswer,
 			SDP:  *msg.SDP,
 		})
@@ -340,7 +214,7 @@ func (p *Peer) handleSignal(msg entity.SignalMessage) {
 		}
 
 	case entity.TypeLeave:
-		p.handlers.OnClose()
+		p.notifyClose()
 
 	default:
 		p.logger.Debug("Ignoring signaling message", slog.String("type", string(msg.Type)))
@@ -364,66 +238,11 @@ func (p *Peer) SendSignal(msg entity.SignalMessage) error {
 	return dc.SendText(string(data))
 }
 
-func (p *Peer) flushCandidateQueue() {
-	p.mux.Lock()
-	defer p.mux.Unlock()
-	for _, c := range p.candidateQueue {
-		if err := p.conn.AddICECandidate(c); err != nil {
-			p.logger.Error("Failed to add ICECandidate", slog.String("error", err.Error()))
-		}
-	}
-	p.candidateQueue = nil
-}
-
-func (p *Peer) addInboundTrack(track *webrtc.TrackRemote) {
-	p.mux.Lock()
-	defer p.mux.Unlock()
-
-	p.inTracks[track.ID()] = track
-}
-
-func (p *Peer) AddOutboundTrack(track *webrtc.TrackLocalStaticRTP) (bool, error) {
-	p.mux.Lock()
-	defer p.mux.Unlock()
-
-	if _, exists := p.outTracks[track.ID()]; exists {
-		return false, nil
-	}
-
-	sender, err := p.conn.AddTrack(track)
-	if err != nil {
-		return false, err
-	}
-	p.outTracks[track.ID()] = sender
-
-	return true, nil
-}
-
 func (p *Peer) RemoveOutboundTracks(trackIDs []string) error {
-	var (
-		errs    []error
-		removed int
-	)
-
-	p.mux.Lock()
-	for _, id := range trackIDs {
-		sender, ok := p.outTracks[id]
-		if !ok {
-			continue
-		}
-		delete(p.outTracks, id)
-
-		if err := p.conn.RemoveTrack(sender); err != nil {
-			errs = append(errs, fmt.Errorf("remove track %s: %w", id, err))
-			continue
-		}
-		removed++
-	}
-	p.mux.Unlock()
-
+	removed, err := p.removeOutboundTracks(trackIDs)
 	if removed > 0 {
-		errs = append(errs, p.Renegotiate())
+		err = errors.Join(err, p.Renegotiate())
 	}
 
-	return errors.Join(errs...)
+	return err
 }

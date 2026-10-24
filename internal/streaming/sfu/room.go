@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"sync"
 
-	"github.com/CMAK12/gonference/internal/streaming/entity"
 	"github.com/CMAK12/gonference/internal/streaming/sfu/peers"
 	"github.com/CMAK12/gonference/internal/streaming/sfu/track"
 
@@ -19,7 +18,7 @@ type (
 		AddTrackAndRenegotiate(track *webrtc.TrackLocalStaticRTP) error
 		AddOutboundTrack(track *webrtc.TrackLocalStaticRTP) (bool, error)
 		RemoveOutboundTracks(trackIDs []string) error
-		SendSignal(msg entity.SignalMessage) error
+		NotifyLeave(memberID string) error
 		Close() error
 	}
 
@@ -70,9 +69,9 @@ func (r *Room) GetPeer(id string) (Peer, bool) {
 
 func (r *Room) AddPeer(offer webrtc.SessionDescription, id string) (webrtc.SessionDescription, Peer, error) {
 	var peer *peers.Peer
-	peer, err := peers.NewPeer(r.api, r.id, id, peers.PeerHandlers{
+	peer, err := peers.NewPeer(r.api, r.id, id, peers.Callbacks{
 		OnTrack: func(remote *webrtc.TrackRemote) {
-			r.addIncomingTrack(id, peer.SendPLI, remote)
+			r.addIncomingTrack(id, peer.RequestKeyframe, remote)
 		},
 		OnClose: func() {
 			r.removePeer(peer)
@@ -201,14 +200,7 @@ func (r *Room) removePeer(peer Peer) {
 	r.mux.Unlock()
 
 	r.releasePeer(peer, detached)
-
-	leaveMsg := entity.SignalMessage{
-		Type:     entity.TypeLeave,
-		RoomID:   r.id,
-		MemberID: id,
-	}
-
-	r.broadcast(leaveMsg, peer)
+	r.notifyLeave(peer)
 
 	if isEmpty {
 		r.onEmpty()
@@ -263,19 +255,19 @@ func (r *Room) releasePeer(peer Peer, d detachedPeer) {
 	}
 }
 
-func (r *Room) broadcast(msg entity.SignalMessage, except Peer) {
+func (r *Room) notifyLeave(left Peer) {
 	r.mux.RLock()
 	recipients := make([]Peer, 0, len(r.peers))
 	for _, p := range r.peers {
-		if p != except {
+		if p != left {
 			recipients = append(recipients, p)
 		}
 	}
 	r.mux.RUnlock()
 
 	for _, peer := range recipients {
-		if err := peer.SendSignal(msg); err != nil {
-			peer.Logger().Error("Failed to send signal message", slog.String("error", err.Error()))
+		if err := peer.NotifyLeave(left.ID()); err != nil {
+			peer.Logger().Error("Failed to notify peer leave", slog.String("error", err.Error()))
 		}
 	}
 }
