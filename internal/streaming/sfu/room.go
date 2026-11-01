@@ -19,7 +19,6 @@ type (
 		AddOutboundTrack(track *webrtc.TrackLocalStaticRTP) (bool, error)
 		RemoveOutboundTracks(trackIDs []string) error
 		NotifyLeave(memberID string) error
-		SetAnswer(a webrtc.SessionDescription) error
 		RequestKeyframe(ssrc uint32)
 		Close() error
 	}
@@ -159,7 +158,10 @@ func (r *Room) attachPeer(peer Peer) {
 func (r *Room) addIncomingTrack(id string, sendPLI func(ssrc uint32), remote *webrtc.TrackRemote) {
 	r.mux.Lock()
 
-	forwarder := track.NewForwarder(id, remote, sendPLI)
+	var forwarder *track.Forwarder
+	forwarder = track.NewForwarder(id, remote, sendPLI, func() {
+		r.releaseTrack(remote.ID(), forwarder)
+	})
 	r.forwarders[remote.ID()] = forwarder
 
 	subscribers := make(map[string]Peer, len(r.peers))
@@ -255,6 +257,31 @@ func (r *Room) releasePeer(peer Peer, d detachedPeer) {
 	for _, p := range d.others {
 		if err := p.RemoveOutboundTracks(d.trackIDs); err != nil {
 			p.Logger().Error("Failed to remove outbound tracks", slog.String("error", err.Error()))
+		}
+	}
+}
+
+func (r *Room) releaseTrack(trackID string, forwarder Forwarder) {
+	r.mux.Lock()
+	if r.forwarders[trackID] != forwarder {
+		r.mux.Unlock()
+		return
+	}
+	delete(r.forwarders, trackID)
+
+	subscribers := make([]Peer, 0, len(r.peers))
+	for peerID, peer := range r.peers {
+		if peerID != forwarder.PublisherID() {
+			subscribers = append(subscribers, peer)
+		}
+	}
+	r.mux.Unlock()
+
+	forwarder.Close()
+
+	for _, peer := range subscribers {
+		if err := peer.RemoveOutboundTracks([]string{trackID}); err != nil {
+			peer.Logger().Error("Failed to remove outbound track", slog.String("error", err.Error()))
 		}
 	}
 }
