@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"sync"
 
 	"github.com/CMAK12/gonference/internal/streaming/entity"
@@ -33,6 +34,9 @@ type connection struct {
 	inTracks       map[string]*webrtc.TrackRemote
 	outTracks      map[string]*webrtc.RTPSender
 	candidateQueue []webrtc.ICECandidateInit
+
+	negMux             sync.Mutex
+	pendingNegotiation bool
 
 	closeOnce  sync.Once
 	notifyOnce sync.Once
@@ -233,6 +237,30 @@ func (c *connection) addInboundTrack(track *webrtc.TrackRemote) {
 
 func (c *connection) notifyClose() {
 	c.notifyOnce.Do(c.callbacks.OnClose)
+}
+
+func (c *connection) Close() error {
+	c.mux.Lock()
+	dc := c.dc
+	c.dc = nil
+	c.mux.Unlock()
+
+	c.negMux.Lock()
+	c.pendingNegotiation = false
+	c.negMux.Unlock()
+
+	var errs []error
+	if dc != nil {
+		if err := dc.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
+			errs = append(errs, fmt.Errorf("close signaling channel: %w", err))
+		}
+	}
+
+	if err := c.close(); err != nil && !errors.Is(err, net.ErrClosed) {
+		errs = append(errs, fmt.Errorf("close peer connection: %w", err))
+	}
+
+	return errors.Join(errs...)
 }
 
 func (c *connection) close() error {

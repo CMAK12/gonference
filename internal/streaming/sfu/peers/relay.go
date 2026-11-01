@@ -1,19 +1,20 @@
 package peers
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
-	"sync"
+	"log/slog"
 
 	"github.com/CMAK12/gonference/internal/streaming/entity"
+
 	"github.com/pion/webrtc/v4"
 )
 
+const relaySignalingChannelID uint16 = 334
+
 type RelayPeer struct {
 	*connection
-
-	negMux             sync.Mutex
-	pendingNegotiation bool
 }
 
 func NewRelayPeer(api *webrtc.API, roomID, id string, callbacks Callbacks) (*RelayPeer, error) {
@@ -26,19 +27,11 @@ func NewRelayPeer(api *webrtc.API, roomID, id string, callbacks Callbacks) (*Rel
 		connection: conn,
 	}
 
-	relay.bindSignalingChannel()
+	if err := relay.bindSignalingChannel(); err != nil {
+		return nil, errors.Join(fmt.Errorf("bind signaling channel: %w", err), conn.close())
+	}
 
 	return relay, nil
-}
-
-func (p *RelayPeer) AddTrackAndRenegotiate(track *webrtc.TrackLocalStaticRTP) error {
-	//TODO implement me
-	panic("implement me")
-}
-
-func (p *RelayPeer) RemoveOutboundTracks(trackIDs []string) error {
-	//TODO implement me
-	panic("implement me")
 }
 
 func (p *RelayPeer) NotifyLeave(memberID string) error {
@@ -49,39 +42,43 @@ func (p *RelayPeer) NotifyLeave(memberID string) error {
 	})
 }
 
-func (p *RelayPeer) bindSignalingChannel() {
-	//TODO implement me
-	panic("implement me")
+func (p *RelayPeer) bindSignalingChannel() error {
+	dc, err := p.pc.CreateDataChannel(signalingChannelLabel, &webrtc.DataChannelInit{
+		Negotiated: new(true),
+		ID:         new(relaySignalingChannelID),
+	})
+	if err != nil {
+		return fmt.Errorf("failed to create signaling data channel: %w", err)
+	}
+
+	p.mux.Lock()
+	p.dc = dc
+	p.mux.Unlock()
+
+	dc.OnOpen(p.onSignalingOpen)
+	dc.OnMessage(func(msg webrtc.DataChannelMessage) {
+		var signal entity.SignalMessage
+		if err := json.Unmarshal(msg.Data, &signal); err != nil {
+			p.logger.Error("Failed to unmarshal signal message", slog.String("error", err.Error()))
+			return
+		}
+
+		p.handleSignal(signal)
+	})
+
+	return nil
 }
 
 func (p *RelayPeer) handleSignal(message entity.SignalMessage) {
 	switch message.Type {
+	case entity.TypeOffer:
+		p.handleOffer(message)
+
+	case entity.TypeAnswer:
+		p.handleAnswer(message)
+
 	case entity.TypeLeave:
 		p.logger.Debug("Received leave signal", "member_id", message.MemberID)
 		p.callbacks.OnMemberLeave(message.MemberID)
 	}
-}
-
-func (p *RelayPeer) Close() error {
-	p.mux.Lock()
-	dc := p.dc
-	p.dc = nil
-	p.mux.Unlock()
-
-	p.negMux.Lock()
-	p.pendingNegotiation = false
-	p.negMux.Unlock()
-
-	var errs []error
-	if dc != nil {
-		if err := dc.Close(); err != nil {
-			errs = append(errs, fmt.Errorf("close signaling channel: %w", err))
-		}
-	}
-
-	if err := p.close(); err != nil {
-		errs = append(errs, fmt.Errorf("close signaling channel: %w", err))
-	}
-
-	return errors.Join(errs...)
 }

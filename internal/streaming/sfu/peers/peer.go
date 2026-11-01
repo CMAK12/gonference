@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
-	"sync"
 
 	"github.com/CMAK12/gonference/internal/streaming/entity"
 
@@ -15,9 +13,6 @@ import (
 
 type Peer struct {
 	*connection
-
-	negMux             sync.Mutex
-	pendingNegotiation bool
 }
 
 func NewPeer(api *webrtc.API, roomID, id string, callbacks Callbacks) (*Peer, error) {
@@ -56,95 +51,12 @@ func (p *Peer) NotifyLeave(memberID string) error {
 	})
 }
 
-func (p *Peer) AddTrackAndRenegotiate(track *webrtc.TrackLocalStaticRTP) error {
-	added, err := p.AddOutboundTrack(track)
-	if err != nil {
-		return err
-	}
-
-	if !added {
-		p.logger.Warn("Track already exists", slog.String("track", track.ID()))
-		return nil
-	}
-
-	return p.Renegotiate()
-}
-
-func (p *Peer) Renegotiate() error {
-	p.mux.RLock()
-	dc := p.dc
-	p.mux.RUnlock()
-
-	if dc == nil || dc.ReadyState() != webrtc.DataChannelStateOpen {
-		return nil
-	}
-
-	p.negMux.Lock()
-	defer p.negMux.Unlock()
-
-	if p.pc.SignalingState() != webrtc.SignalingStateStable {
-		p.pendingNegotiation = true
-		return nil
-	}
-	p.pendingNegotiation = false
-
-	offer, err := p.CreateOffer()
-	if err != nil {
-		return err
-	}
-
-	msg := entity.SignalMessage{
-		Type:     entity.TypeOffer,
-		RoomID:   p.roomID,
-		MemberID: p.id,
-		SDP:      &offer.SDP,
-	}
-
-	return p.SendSignal(msg)
-}
-
-func (p *Peer) Close() error {
-	p.mux.Lock()
-	dc := p.dc
-	p.dc = nil
-	p.mux.Unlock()
-
-	p.negMux.Lock()
-	p.pendingNegotiation = false
-	p.negMux.Unlock()
-
-	var errs []error
-	if dc != nil {
-		if err := dc.Close(); err != nil && !errors.Is(err, net.ErrClosed) {
-			errs = append(errs, fmt.Errorf("close signaling channel: %w", err))
-		}
-	}
-
-	if err := p.close(); err != nil && !errors.Is(err, net.ErrClosed) {
-		errs = append(errs, fmt.Errorf("close peer connection: %w", err))
-	}
-
-	return errors.Join(errs...)
-}
-
 func (p *Peer) bindSignalingChannel(d *webrtc.DataChannel) {
 	p.mux.Lock()
 	p.dc = d
 	p.mux.Unlock()
 
-	d.OnOpen(func() {
-		p.logger.Info("Signaling data channel open")
-
-		p.mux.RLock()
-		hasTracks := len(p.outTracks) > 0
-		p.mux.RUnlock()
-
-		if hasTracks {
-			if err := p.Renegotiate(); err != nil {
-				p.logger.Error("Failed to renegotiate on data channel open", slog.String("error", err.Error()))
-			}
-		}
-	})
+	d.OnOpen(p.onSignalingOpen)
 
 	d.OnMessage(func(raw webrtc.DataChannelMessage) {
 		var msg entity.SignalMessage
@@ -160,55 +72,10 @@ func (p *Peer) bindSignalingChannel(d *webrtc.DataChannel) {
 func (p *Peer) handleSignal(msg entity.SignalMessage) {
 	switch msg.Type {
 	case entity.TypeOffer:
-		if msg.SDP == nil {
-			p.logger.Warn("Offer without SDP")
-			return
-		}
-
-		answer, err := p.CreateAnswer(webrtc.SessionDescription{
-			Type: webrtc.SDPTypeOffer,
-			SDP:  *msg.SDP,
-		})
-		if err != nil {
-			p.logger.Error("Failed to create answer", slog.String("error", err.Error()))
-			return
-		}
-
-		answerMsg := entity.SignalMessage{
-			Type:     entity.TypeAnswer,
-			RoomID:   p.roomID,
-			MemberID: p.id,
-			SDP:      &answer.SDP,
-		}
-
-		if err := p.SendSignal(answerMsg); err != nil {
-			p.logger.Error("Failed to send answer", slog.String("error", err.Error()))
-		}
+		p.handleOffer(msg)
 
 	case entity.TypeAnswer:
-		if msg.SDP == nil {
-			p.logger.Warn("Answer without SDP")
-			return
-		}
-
-		p.negMux.Lock()
-		err := p.SetAnswer(webrtc.SessionDescription{
-			Type: webrtc.SDPTypeAnswer,
-			SDP:  *msg.SDP,
-		})
-		pending := p.pendingNegotiation
-		p.negMux.Unlock()
-
-		if err != nil {
-			p.logger.Error("Failed to set remote answer", slog.String("error", err.Error()))
-			return
-		}
-
-		if pending {
-			if err := p.Renegotiate(); err != nil {
-				p.logger.Error("Failed to renegotiate", slog.String("error", err.Error()))
-			}
-		}
+		p.handleAnswer(msg)
 
 	case entity.TypeLeave:
 		p.notifyClose()
@@ -216,13 +83,4 @@ func (p *Peer) handleSignal(msg entity.SignalMessage) {
 	default:
 		p.logger.Debug("Ignoring signaling message", slog.String("type", string(msg.Type)))
 	}
-}
-
-func (p *Peer) RemoveOutboundTracks(trackIDs []string) error {
-	removed, err := p.removeOutboundTracks(trackIDs)
-	if removed > 0 {
-		err = errors.Join(err, p.Renegotiate())
-	}
-
-	return err
 }
