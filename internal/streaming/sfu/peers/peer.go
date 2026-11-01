@@ -18,7 +18,6 @@ type Peer struct {
 
 	negMux             sync.Mutex
 	pendingNegotiation bool
-	dc                 *webrtc.DataChannel
 }
 
 func NewPeer(api *webrtc.API, roomID, id string, callbacks Callbacks) (*Peer, error) {
@@ -217,23 +216,6 @@ func (p *Peer) handleSignal(msg entity.SignalMessage) {
 	default:
 		p.logger.Debug("Ignoring signaling message", slog.String("type", string(msg.Type)))
 	}
-}
-
-func (p *Peer) SendSignal(msg entity.SignalMessage) error {
-	p.mux.RLock()
-	dc := p.dc
-	p.mux.RUnlock()
-
-	if dc == nil || dc.ReadyState() != webrtc.DataChannelStateOpen {
-		return fmt.Errorf("peer %s: signaling data channel not open", p.id)
-	}
-
-	data, err := json.Marshal(msg)
-	if err != nil {
-		return fmt.Errorf("marshal signal message: %w", err)
-	}
-
-	return dc.SendText(string(data))
 }
 
 func (p *Peer) RemoveOutboundTracks(trackIDs []string) error {

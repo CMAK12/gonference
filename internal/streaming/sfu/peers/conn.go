@@ -1,10 +1,13 @@
 package peers
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
+
+	"github.com/CMAK12/gonference/internal/streaming/entity"
 
 	"github.com/pion/rtcp"
 	"github.com/pion/webrtc/v4"
@@ -13,14 +16,16 @@ import (
 const signalingChannelLabel = "signaling"
 
 type Callbacks struct {
-	OnTrack func(remote *webrtc.TrackRemote)
-	OnClose func()
+	OnTrack       func(remote *webrtc.TrackRemote)
+	OnClose       func()
+	OnMemberLeave func(memberID string)
 }
 
 type connection struct {
 	id        string
 	roomID    string
 	pc        *webrtc.PeerConnection
+	dc        *webrtc.DataChannel
 	callbacks Callbacks
 	logger    *slog.Logger
 
@@ -62,11 +67,11 @@ func newConnection(api *webrtc.API, roomID, id string, callbacks Callbacks) (*co
 	})
 
 	pc.OnConnectionStateChange(func(state webrtc.PeerConnectionState) {
+		c.logger.Debug("Connection state change", slog.String("state", state.String()))
+
 		switch state {
 		case webrtc.PeerConnectionStateClosed, webrtc.PeerConnectionStateFailed:
 			c.notifyClose()
-		default:
-			c.logger.Info("Connection state change", slog.String("state", state.String()))
 		}
 	})
 
@@ -148,6 +153,23 @@ func (c *connection) AddOutboundTrack(t *webrtc.TrackLocalStaticRTP) (bool, erro
 	c.outTracks[t.ID()] = sender
 
 	return true, nil
+}
+
+func (c *connection) SendSignal(msg entity.SignalMessage) error {
+	c.mux.RLock()
+	dc := c.dc
+	c.mux.RUnlock()
+
+	if dc == nil || dc.ReadyState() != webrtc.DataChannelStateOpen {
+		return fmt.Errorf("peer %s: signaling data channel not open", c.id)
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("marshal signal message: %w", err)
+	}
+
+	return dc.SendText(string(data))
 }
 
 func (c *connection) RequestKeyframe(ssrc uint32) {

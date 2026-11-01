@@ -83,6 +83,9 @@ func NewPeer[P Peer](r *Room, id string, newPeer PeerConstructor[P]) (P, error) 
 		OnClose: func() {
 			r.removePeer(p)
 		},
+		OnMemberLeave: func(memberID string) {
+			r.NotifyMemberLeft(memberID, p)
+		},
 	})
 
 	return p, err
@@ -201,7 +204,7 @@ func (r *Room) removePeer(peer Peer) {
 	r.mux.Unlock()
 
 	r.releasePeer(peer, detached)
-	r.notifyLeave(peer)
+	r.NotifyMemberLeft(peer.ID(), peer)
 
 	if isEmpty {
 		r.onEmpty()
@@ -256,18 +259,18 @@ func (r *Room) releasePeer(peer Peer, d detachedPeer) {
 	}
 }
 
-func (r *Room) notifyLeave(left Peer) {
+func (r *Room) NotifyMemberLeft(memberID string, from Peer) {
 	r.mux.RLock()
 	recipients := make([]Peer, 0, len(r.peers))
 	for _, p := range r.peers {
-		if p != left {
+		if p != from {
 			recipients = append(recipients, p)
 		}
 	}
 	r.mux.RUnlock()
 
 	for _, peer := range recipients {
-		if err := peer.NotifyLeave(left.ID()); err != nil {
+		if err := peer.NotifyLeave(memberID); err != nil {
 			peer.Logger().Error("Failed to notify peer leave", slog.String("error", err.Error()))
 		}
 	}
