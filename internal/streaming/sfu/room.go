@@ -1,8 +1,6 @@
 package sfu
 
 import (
-	"errors"
-	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -13,8 +11,6 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-const relayPrefix = "relay-"
-
 type (
 	Peer interface {
 		ID() string
@@ -24,8 +20,11 @@ type (
 		RemoveOutboundTracks(trackIDs []string) error
 		NotifyLeave(memberID string) error
 		SetAnswer(a webrtc.SessionDescription) error
+		RequestKeyframe(ssrc uint32)
 		Close() error
 	}
+
+	PeerConstructor[P Peer] func(api *webrtc.API, roomID, id string, callbacks peers.Callbacks) (P, error)
 
 	Forwarder interface {
 		PublisherID() string
@@ -75,54 +74,22 @@ func (r *Room) GetPeer(id string) (Peer, bool) {
 	return peer, ok
 }
 
-func (r *Room) AddPeer(offer webrtc.SessionDescription, id string) (webrtc.SessionDescription, Peer, error) {
-	var peer *peers.Peer
-	peer, err := peers.NewPeer(r.api, r.id, id, peers.Callbacks{
+func NewPeer[P Peer](r *Room, id string, newPeer PeerConstructor[P]) (P, error) {
+	var p P
+	p, err := newPeer(r.api, r.id, id, peers.Callbacks{
 		OnTrack: func(remote *webrtc.TrackRemote) {
-			r.addIncomingTrack(id, peer.RequestKeyframe, remote)
+			r.addIncomingTrack(id, p.RequestKeyframe, remote)
 		},
 		OnClose: func() {
-			r.removePeer(peer)
+			r.removePeer(p)
 		},
 	})
-	if err != nil {
-		return webrtc.SessionDescription{}, nil, err
-	}
 
-	answer, err := peer.CreateAnswer(offer)
-	if err != nil {
-		return webrtc.SessionDescription{}, nil, errors.Join(err, peer.Close())
-	}
-
-	r.attachPeer(peer)
-
-	return answer, peer, nil
+	return p, err
 }
 
-func (r *Room) AddRelayPeer(offer webrtc.SessionDescription, server string) (webrtc.SessionDescription, Peer, error) {
-	id := relayID(server)
-
-	var relay *peers.RelayPeer
-	relay, err := peers.NewRelayPeer(r.api, r.id, id, peers.Callbacks{
-		OnTrack: func(remote *webrtc.TrackRemote) {
-			r.addIncomingTrack(id, relay.RequestKeyframe, remote)
-		},
-		OnClose: func() {
-			r.removePeer(relay)
-		},
-	})
-	if err != nil {
-		return webrtc.SessionDescription{}, nil, err
-	}
-
-	answer, err := relay.CreateAnswer(offer)
-	if err != nil {
-		return webrtc.SessionDescription{}, nil, errors.Join(err, relay.Close())
-	}
-
-	r.attachPeer(relay)
-
-	return answer, relay, nil
+func (r *Room) Attach(peer Peer) {
+	r.attachPeer(peer)
 }
 
 func (r *Room) RemovePeer(id string) {
@@ -132,56 +99,6 @@ func (r *Room) RemovePeer(id string) {
 	}
 
 	r.removePeer(peer)
-}
-
-func (r *Room) GetRelay(server string) (Peer, bool) {
-	return r.GetPeer(relayID(server))
-}
-
-func (r *Room) RemoveRelay(server string) {
-	r.RemovePeer(relayID(server))
-}
-
-func (r *Room) CreateRelayOffer(owner string) (webrtc.SessionDescription, error) {
-	id := relayID(owner)
-
-	var relay *peers.RelayPeer
-	relay, err := peers.NewRelayPeer(r.api, r.id, id, peers.Callbacks{
-		OnTrack: func(remote *webrtc.TrackRemote) {
-			r.addIncomingTrack(id, relay.RequestKeyframe, remote)
-		},
-		OnClose: func() {
-			r.removePeer(relay)
-		},
-	})
-	if err != nil {
-		return webrtc.SessionDescription{}, err
-	}
-
-	r.attachPeer(relay)
-
-	offer, err := relay.CreateOffer()
-	if err != nil {
-		r.removePeer(relay)
-		return webrtc.SessionDescription{}, err
-	}
-
-	return offer, nil
-}
-
-func (r *Room) SetRelayAnswer(owner string, answer webrtc.SessionDescription) error {
-	relay, ok := r.GetRelay(owner)
-	if !ok {
-		return fmt.Errorf("relay peer not found")
-	}
-
-	err := relay.SetAnswer(answer)
-	if err != nil {
-		r.removePeer(relay)
-		return fmt.Errorf("failed to set relay answer: %w", err)
-	}
-
-	return nil
 }
 
 func (r *Room) Close() {
@@ -354,8 +271,4 @@ func (r *Room) notifyLeave(left Peer) {
 			peer.Logger().Error("Failed to notify peer leave", slog.String("error", err.Error()))
 		}
 	}
-}
-
-func relayID(server string) string {
-	return relayPrefix + server
 }
