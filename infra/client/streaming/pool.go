@@ -6,46 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/CMAK12/gonference/infra/client"
 	gnpb "github.com/CMAK12/gonference/internal/gen/streaming/v1"
-
-	"google.golang.org/grpc"
 )
-
-type Client struct {
-	conn *grpc.ClientConn
-
-	Signaling gnpb.SignalingClient
-}
-
-func NewClient(addr string) (*Client, error) {
-	conn, err := client.Dial(addr)
-	if err != nil {
-		return nil, fmt.Errorf("streaming.New: dial %s: %w", addr, err)
-	}
-
-	return &Client{
-		conn:      conn,
-		Signaling: gnpb.NewSignalingClient(conn),
-	}, nil
-}
-
-func (c *Client) Connect(ctx context.Context, req *gnpb.SignalMessage) (*gnpb.SignalMessage, error) {
-	resp, err := c.Signaling.Connect(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("streaming.Connect: %w", err)
-	}
-
-	if resp.Sdp == nil {
-		return nil, fmt.Errorf("streaming.Connect: empty answer SDP")
-	}
-
-	return resp, nil
-}
-
-func (c *Client) Close() error {
-	return c.conn.Close()
-}
 
 type Pool struct {
 	mu      sync.Mutex
@@ -82,6 +44,24 @@ func (p *Pool) Connect(ctx context.Context, podAddr string, req *gnpb.SignalMess
 	}
 
 	return conn.Connect(ctx, req)
+}
+
+func (p *Pool) ConnectRelay(ctx context.Context, podAddr string, req *gnpb.ConnectRelayRequest) (*gnpb.ConnectRelayResponse, error) {
+	conn, err := p.Get(podAddr)
+	if err != nil {
+		return nil, fmt.Errorf("streaming.ConnectRelay: %w", err)
+	}
+
+	return conn.ConnectRelay(ctx, req)
+}
+
+func (p *Pool) DisconnectRelay(ctx context.Context, podAddr string, req *gnpb.DisconnectRelayRequest) error {
+	conn, err := p.Get(podAddr)
+	if err != nil {
+		return fmt.Errorf("streaming.DisconnectRelay: %w", err)
+	}
+
+	return conn.DisconnectRelay(ctx, req)
 }
 
 func (p *Pool) Remove(podAddr string) error {

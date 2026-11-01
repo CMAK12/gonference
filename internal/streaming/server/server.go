@@ -7,12 +7,14 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/CMAK12/gonference/infra/client/streaming"
 	"github.com/CMAK12/gonference/infra/db/in-memory/dragonfly"
 	infraserver "github.com/CMAK12/gonference/infra/server/grpc"
 	"github.com/CMAK12/gonference/internal/streaming/config"
 	grpcv1 "github.com/CMAK12/gonference/internal/streaming/handler/grpc/v1"
 	"github.com/CMAK12/gonference/internal/streaming/sfu"
 	"github.com/CMAK12/gonference/internal/streaming/signaling"
+	in_memory "github.com/CMAK12/gonference/internal/streaming/storage/in-memory"
 	"google.golang.org/grpc/health/grpc_health_v1"
 	"google.golang.org/grpc/keepalive"
 )
@@ -49,13 +51,20 @@ func Run() error {
 		"db", cfg.InMemoryDB.Database,
 	)
 
-	s, err := sfu.New()
+	s, err := sfu.New(cfg.Signaling.OwnershipTTL)
 	if err != nil {
 		return fmt.Errorf("create sfu: %w", err)
 	}
 	defer s.Close()
 
-	sig := signaling.New(s)
+	relayPool := streaming.NewPool()
+	defer func() {
+		if err := relayPool.Close(); err != nil {
+			log.Error("close relay pool", slog.String("error", err.Error()))
+		}
+	}()
+
+	sig := signaling.New(cfg.Relay.AdvertiseAddr, cfg.Signaling.OwnershipTTL, cfg.Signaling.MaxResolveRetries, s, in_memory.NewStorage(df), relayPool)
 
 	grpcServer, err := infraserver.New(cfg.GRPC.Addr,
 		infraserver.WithLogger(log),
@@ -80,7 +89,7 @@ func Run() error {
 
 	grpcServer.SetServingStatus(healthServiceName, grpc_health_v1.HealthCheckResponse_SERVING)
 
-	grpcv1.RegisterGRPCV1Handler(grpcServer, sig)
+	grpcv1.RegisterGRPCV1Handler(grpcServer, sig, sig)
 
 	serveErr := make(chan error, 1)
 

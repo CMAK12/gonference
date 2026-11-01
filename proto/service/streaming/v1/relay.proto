@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package gonference.relay.v1;
+
+import "buf/validate/validate.proto";
+
+service Relay {
+  rpc Connect(ConnectRelayRequest) returns (ConnectRelayResponse);
+  rpc Disconnect(DisconnectRelayRequest) returns (DisconnectRelayResponse);
+}
+
+message ConnectRelayRequest {
+  string room_id = 1 [(buf.validate.field).required = true];
+  string relay_id = 2 [(buf.validate.field).required = true];
+  string sdp = 3 [(buf.validate.field).string.min_len = 1];
+}
+
+message ConnectRelayResponse {
+  string room_id = 1;
+  string relay_id = 2;
+  string sdp = 3;
+}
+
+message DisconnectRelayRequest {
+  string room_id = 1 [(buf.validate.field).required = true];
+  string relay_id = 2 [(buf.validate.field).required = true];
+}
+
+message DisconnectRelayResponse {}

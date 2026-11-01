@@ -10,6 +10,8 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+const signalingChannelLabel = "signaling"
+
 type Callbacks struct {
 	OnTrack func(remote *webrtc.TrackRemote)
 	OnClose func()
@@ -127,8 +129,8 @@ func (c *connection) CreateAnswer(offer webrtc.SessionDescription) (webrtc.Sessi
 	return *c.pc.LocalDescription(), nil
 }
 
-func (c *connection) SetAnswer(a webrtc.SessionDescription) error {
-	return c.pc.SetRemoteDescription(a)
+func (c *connection) SetAnswer(offer webrtc.SessionDescription) error {
+	return c.pc.SetRemoteDescription(offer)
 }
 
 func (c *connection) AddOutboundTrack(t *webrtc.TrackLocalStaticRTP) (bool, error) {

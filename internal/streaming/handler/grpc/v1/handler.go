@@ -7,10 +7,18 @@ import (
 	"google.golang.org/grpc"
 )
 
-type Signaling interface {
-	HandleOffer(ctx context.Context, message entity.SignalMessage) (entity.SignalMessage, error)
-}
+type (
+	Signaling interface {
+		HandleOffer(ctx context.Context, message entity.SignalMessage) (entity.SignalMessage, error)
+	}
 
-func RegisterGRPCV1Handler(server grpc.ServiceRegistrar, s Signaling) {
+	Relay interface {
+		HandleRelayOffer(ctx context.Context, offer entity.RelayOffer) (entity.RelayAnswer, error)
+		HandleRelayLeave(ctx context.Context, roomID, relayID string)
+	}
+)
+
+func RegisterGRPCV1Handler(server grpc.ServiceRegistrar, s Signaling, r Relay) {
 	registerSignalingServer(server, s)
+	registerRelayServer(server, r)
 }

@@ -13,8 +13,6 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
-const signalingChannelLabel = "signaling"
-
 type Peer struct {
 	*connection
 

@@ -2,45 +2,51 @@ package signaling
 
 import (
 	"context"
-	"fmt"
+	"time"
 
-	"github.com/CMAK12/gonference/internal/streaming/entity"
+	gnpb "github.com/CMAK12/gonference/internal/gen/streaming/v1"
 	"github.com/CMAK12/gonference/internal/streaming/sfu"
 
-	"github.com/pion/webrtc/v4"
+	"golang.org/x/sync/singleflight"
 )
 
-type SFU interface {
-	GetOrCreateRoom(id string) *sfu.Room
-}
+type (
+	SFU interface {
+		GetRoom(id string) (*sfu.Room, bool)
+		GetOrCreateRoom(id string) *sfu.Room
+	}
+
+	InMemory interface {
+		GetRoom(ctx context.Context, roomID string) (string, error)
+		ClaimRoom(ctx context.Context, roomID, owner string, ttl time.Duration) (bool, error)
+		RefreshRoom(ctx context.Context, roomID, owner string, ttl time.Duration) (bool, error)
+		RemoveRoom(ctx context.Context, roomID string) error
+	}
+
+	RelayClient interface {
+		ConnectRelay(ctx context.Context, podAddr string, req *gnpb.ConnectRelayRequest) (*gnpb.ConnectRelayResponse, error)
+		DisconnectRelay(ctx context.Context, podAddr string, req *gnpb.DisconnectRelayRequest) error
+	}
+)
 
 type Signaling struct {
-	sfu SFU
+	self              string
+	ownershipTTL      time.Duration
+	maxResolveRetries int
+	sfu               SFU
+	inMemory          InMemory
+	relay             RelayClient
+
+	relayGroup singleflight.Group
 }
 
-func New(sfu SFU) *Signaling {
+func New(self string, ownershipTTL time.Duration, maxResolveRetries int, sfu SFU, inMemory InMemory, relay RelayClient) *Signaling {
 	return &Signaling{
-		sfu: sfu,
+		self:              self,
+		ownershipTTL:      ownershipTTL,
+		maxResolveRetries: maxResolveRetries,
+		sfu:               sfu,
+		inMemory:          inMemory,
+		relay:             relay,
 	}
-}
-
-func (s *Signaling) HandleOffer(ctx context.Context, message entity.SignalMessage) (entity.SignalMessage, error) {
-	room := s.sfu.GetOrCreateRoom(message.RoomID)
-
-	offer := webrtc.SessionDescription{
-		Type: webrtc.SDPTypeOffer,
-		SDP:  *message.SDP,
-	}
-
-	answer, _, err := room.AddPeer(offer, message.MemberID)
-	if err != nil {
-		return entity.SignalMessage{}, fmt.Errorf("signaling.HandleOffer: failed to add peer: %w", err)
-	}
-
-	return entity.SignalMessage{
-		Type:     entity.TypeAnswer,
-		RoomID:   message.RoomID,
-		MemberID: message.MemberID,
-		SDP:      &answer.SDP,
-	}, nil
 }
