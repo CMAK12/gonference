@@ -18,7 +18,7 @@ const relayPrefix = "relay-"
 func (s *Signaling) HandleRelayOffer(ctx context.Context, offer entity.RelayOffer) (entity.RelayAnswer, error) {
 	room := s.sfu.GetOrCreateRoom(offer.RoomID)
 
-	relay, err := sfu.NewPeer(room, relayPeerID(offer.RelayID), peers.NewRelayPeer)
+	relay, err := sfu.NewPeer(room, relayPeerID(offer.RelayID), peers.NewRelayAnswerer)
 	if err != nil {
 		return entity.RelayAnswer{}, fmt.Errorf("signaling.HandleRelayOffer: failed to create relay peer: %w", err)
 	}
@@ -56,7 +56,7 @@ func (s *Signaling) connectRelay(ctx context.Context, room *sfu.Room, owner stri
 			return nil, nil
 		}
 
-		relay, err := sfu.NewPeer(room, id, peers.NewRelayPeer)
+		relay, err := sfu.NewPeer(room, id, peers.NewRelayOfferer)
 		if err != nil {
 			return nil, fmt.Errorf("create relay peer: %w", err)
 		}

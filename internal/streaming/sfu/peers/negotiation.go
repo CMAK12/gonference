@@ -87,10 +87,30 @@ func (c *connection) handleOffer(msg entity.SignalMessage) {
 		return
 	}
 
+	c.negMux.Lock()
+	collision := c.pc.SignalingState() != webrtc.SignalingStateStable
+	if collision && !c.polite {
+		c.negMux.Unlock()
+		c.logger.Debug("Ignoring colliding offer")
+		return
+	}
+
+	if collision {
+		if err := c.pc.SetLocalDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeRollback}); err != nil {
+			c.negMux.Unlock()
+			c.logger.Error("Failed to rollback local offer", slog.String("error", err.Error()))
+			return
+		}
+		c.pendingNegotiation = true
+	}
+
 	answer, err := c.CreateAnswer(webrtc.SessionDescription{
 		Type: webrtc.SDPTypeOffer,
 		SDP:  *msg.SDP,
 	})
+	pending := c.pendingNegotiation
+	c.negMux.Unlock()
+
 	if err != nil {
 		c.logger.Error("Failed to create answer", slog.String("error", err.Error()))
 		return
@@ -105,6 +125,13 @@ func (c *connection) handleOffer(msg entity.SignalMessage) {
 
 	if err := c.SendSignal(answerMsg); err != nil {
 		c.logger.Error("Failed to send answer", slog.String("error", err.Error()))
+		return
+	}
+
+	if pending {
+		if err := c.renegotiate(); err != nil {
+			c.logger.Error("Failed to renegotiate", slog.String("error", err.Error()))
+		}
 	}
 }
 
@@ -115,6 +142,12 @@ func (c *connection) handleAnswer(msg entity.SignalMessage) {
 	}
 
 	c.negMux.Lock()
+	if c.pc.SignalingState() != webrtc.SignalingStateHaveLocalOffer {
+		c.negMux.Unlock()
+		c.logger.Debug("Ignoring answer without pending local offer")
+		return
+	}
+
 	err := c.SetAnswer(webrtc.SessionDescription{
 		Type: webrtc.SDPTypeAnswer,
 		SDP:  *msg.SDP,

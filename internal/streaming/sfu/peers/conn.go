@@ -35,6 +35,7 @@ type connection struct {
 	outTracks      map[string]*webrtc.RTPSender
 	candidateQueue []webrtc.ICECandidateInit
 
+	polite             bool
 	negMux             sync.Mutex
 	pendingNegotiation bool
 
@@ -43,7 +44,7 @@ type connection struct {
 	closeErr   error
 }
 
-func newConnection(api *webrtc.API, roomID, id string, callbacks Callbacks) (*connection, error) {
+func newConnection(api *webrtc.API, roomID, id string, polite bool, callbacks Callbacks) (*connection, error) {
 	pc, err := api.NewPeerConnection(webrtc.Configuration{
 		ICEServers: []webrtc.ICEServer{
 			{
@@ -59,6 +60,7 @@ func newConnection(api *webrtc.API, roomID, id string, callbacks Callbacks) (*co
 		id:        id,
 		roomID:    roomID,
 		pc:        pc,
+		polite:    polite,
 		callbacks: callbacks,
 		logger:    slog.Default().With("component", "peer", "id", id),
 		inTracks:  make(map[string]*webrtc.TrackRemote),

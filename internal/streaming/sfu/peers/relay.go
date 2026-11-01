@@ -17,8 +17,16 @@ type RelayPeer struct {
 	*connection
 }
 
-func NewRelayPeer(api *webrtc.API, roomID, id string, callbacks Callbacks) (*RelayPeer, error) {
-	conn, err := newConnection(api, roomID, id, callbacks)
+func NewRelayOfferer(api *webrtc.API, roomID, id string, callbacks Callbacks) (*RelayPeer, error) {
+	return newRelayPeer(api, roomID, id, false, callbacks)
+}
+
+func NewRelayAnswerer(api *webrtc.API, roomID, id string, callbacks Callbacks) (*RelayPeer, error) {
+	return newRelayPeer(api, roomID, id, true, callbacks)
+}
+
+func newRelayPeer(api *webrtc.API, roomID, id string, polite bool, callbacks Callbacks) (*RelayPeer, error) {
+	conn, err := newConnection(api, roomID, id, polite, callbacks)
 	if err != nil {
 		return nil, err
 	}

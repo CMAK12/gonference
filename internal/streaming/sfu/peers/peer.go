@@ -16,7 +16,7 @@ type Peer struct {
 }
 
 func NewPeer(api *webrtc.API, roomID, id string, callbacks Callbacks) (*Peer, error) {
-	conn, err := newConnection(api, roomID, id, callbacks)
+	conn, err := newConnection(api, roomID, id, false, callbacks)
 	if err != nil {
 		return nil, fmt.Errorf("new connection: %w", err)
 	}
