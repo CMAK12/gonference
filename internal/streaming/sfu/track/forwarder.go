@@ -10,6 +10,7 @@ type Forwarder struct {
 	publisherID     string
 	remote          *webrtc.TrackRemote
 	requestKeyframe func(ssrc uint32)
+	onEnded         func()
 
 	mux    sync.RWMutex
 	locals map[string]*webrtc.TrackLocalStaticRTP
@@ -18,11 +19,12 @@ type Forwarder struct {
 	closeOnce sync.Once
 }
 
-func NewForwarder(publisherID string, remote *webrtc.TrackRemote, requestKeyframe func(ssrc uint32)) *Forwarder {
+func NewForwarder(publisherID string, remote *webrtc.TrackRemote, requestKeyframe func(ssrc uint32), onEnded func()) *Forwarder {
 	return &Forwarder{
 		publisherID:     publisherID,
 		remote:          remote,
 		requestKeyframe: requestKeyframe,
+		onEnded:         onEnded,
 		locals:          make(map[string]*webrtc.TrackLocalStaticRTP),
 		closed:          make(chan struct{}),
 	}
@@ -39,7 +41,7 @@ func (tf *Forwarder) TrackID() string {
 func (tf *Forwarder) AddPeer(id string) (*webrtc.TrackLocalStaticRTP, error) {
 	local, err := webrtc.NewTrackLocalStaticRTP(
 		tf.remote.Codec().RTPCodecCapability,
-		tf.remote.ID(),
+		tf.remote.StreamID(),
 		tf.publisherID,
 	)
 	if err != nil {
@@ -72,6 +74,11 @@ func (tf *Forwarder) Start() {
 			default:
 				n, _, err := tf.remote.Read(buf)
 				if err != nil {
+					select {
+					case <-tf.closed:
+					default:
+						tf.onEnded()
+					}
 					return
 				}
 

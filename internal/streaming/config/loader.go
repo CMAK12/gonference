@@ -29,7 +29,7 @@ func MustLoad() Config {
 	cfg.Relay.AdvertiseAddr = getEnv("RELAY_ADVERTISE_ADDR", "localhost:10003")
 
 	cfg.Signaling.MaxResolveRetries = getEnvInt("SIGNALING_MAX_RESOLVE_RETRIES", 2)
-	cfg.Signaling.RelayOwnershipTTL = getEnvDuration("SIGNALING_RELAY_OWNERSHIP_TTL", 2*time.Minute)
+	cfg.Signaling.OwnershipTTL = getEnvDuration("SIGNALING_OWNERSHIP_TTL", 30*time.Second)
 
 	cfg.InMemoryDB.Addr = getEnv("DRAGONFLY_ADDR", "127.0.0.1:6379")
 	cfg.InMemoryDB.Password = getEnv("DRAGONFLY_PASSWORD", "")

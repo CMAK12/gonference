@@ -1,11 +1,10 @@
 package sfu
 
 import (
-	"errors"
 	"log/slog"
 	"sync"
+	"time"
 
-	"github.com/CMAK12/gonference/internal/streaming/entity"
 	"github.com/CMAK12/gonference/internal/streaming/sfu/peers"
 	"github.com/CMAK12/gonference/internal/streaming/sfu/track"
 
@@ -19,9 +18,12 @@ type (
 		AddTrackAndRenegotiate(track *webrtc.TrackLocalStaticRTP) error
 		AddOutboundTrack(track *webrtc.TrackLocalStaticRTP) (bool, error)
 		RemoveOutboundTracks(trackIDs []string) error
-		SendSignal(msg entity.SignalMessage) error
+		NotifyLeave(memberID string) error
+		RequestKeyframe(ssrc uint32)
 		Close() error
 	}
+
+	PeerConstructor[P Peer] func(api *webrtc.API, roomID, id string, callbacks peers.Callbacks) (P, error)
 
 	Forwarder interface {
 		PublisherID() string
@@ -41,10 +43,12 @@ type Room struct {
 	api    *webrtc.API
 	logger *slog.Logger
 
+	ownershipTTL time.Duration
+
 	onEmpty func()
 }
 
-func NewRoom(api *webrtc.API, id string, onEmpty func()) *Room {
+func NewRoom(api *webrtc.API, id string, ownershipTTL time.Duration, onEmpty func()) *Room {
 	return &Room{
 		id:         id,
 		api:        api,
@@ -52,7 +56,8 @@ func NewRoom(api *webrtc.API, id string, onEmpty func()) *Room {
 		peers:      make(map[string]Peer),
 		forwarders: make(map[string]Forwarder),
 
-		onEmpty: onEmpty,
+		ownershipTTL: ownershipTTL,
+		onEmpty:      onEmpty,
 	}
 }
 
@@ -68,28 +73,25 @@ func (r *Room) GetPeer(id string) (Peer, bool) {
 	return peer, ok
 }
 
-func (r *Room) AddPeer(offer webrtc.SessionDescription, id string) (webrtc.SessionDescription, Peer, error) {
-	var peer *peers.Peer
-	peer, err := peers.NewPeer(r.api, r.id, id, peers.PeerHandlers{
+func NewPeer[P Peer](r *Room, id string, newPeer PeerConstructor[P]) (P, error) {
+	var p P
+	p, err := newPeer(r.api, r.id, id, peers.Callbacks{
 		OnTrack: func(remote *webrtc.TrackRemote) {
-			r.addIncomingTrack(id, peer.SendPLI, remote)
+			r.addIncomingTrack(id, p.RequestKeyframe, remote)
 		},
 		OnClose: func() {
-			r.removePeer(peer)
+			r.removePeer(p)
+		},
+		OnMemberLeave: func(memberID string) {
+			r.NotifyMemberLeft(memberID, p)
 		},
 	})
-	if err != nil {
-		return webrtc.SessionDescription{}, nil, err
-	}
 
-	answer, err := peer.CreateAnswer(offer)
-	if err != nil {
-		return webrtc.SessionDescription{}, nil, errors.Join(err, peer.Close())
-	}
+	return p, err
+}
 
+func (r *Room) Attach(peer Peer) {
 	r.attachPeer(peer)
-
-	return answer, peer, nil
 }
 
 func (r *Room) RemovePeer(id string) {
@@ -156,7 +158,10 @@ func (r *Room) attachPeer(peer Peer) {
 func (r *Room) addIncomingTrack(id string, sendPLI func(ssrc uint32), remote *webrtc.TrackRemote) {
 	r.mux.Lock()
 
-	forwarder := track.NewForwarder(id, remote, sendPLI)
+	var forwarder *track.Forwarder
+	forwarder = track.NewForwarder(id, remote, sendPLI, func() {
+		r.releaseTrack(remote.ID(), forwarder)
+	})
 	r.forwarders[remote.ID()] = forwarder
 
 	subscribers := make(map[string]Peer, len(r.peers))
@@ -201,14 +206,7 @@ func (r *Room) removePeer(peer Peer) {
 	r.mux.Unlock()
 
 	r.releasePeer(peer, detached)
-
-	leaveMsg := entity.SignalMessage{
-		Type:     entity.TypeLeave,
-		RoomID:   r.id,
-		MemberID: id,
-	}
-
-	r.broadcast(leaveMsg, peer)
+	r.NotifyMemberLeft(peer.ID(), peer)
 
 	if isEmpty {
 		r.onEmpty()
@@ -263,19 +261,44 @@ func (r *Room) releasePeer(peer Peer, d detachedPeer) {
 	}
 }
 
-func (r *Room) broadcast(msg entity.SignalMessage, except Peer) {
+func (r *Room) releaseTrack(trackID string, forwarder Forwarder) {
+	r.mux.Lock()
+	if r.forwarders[trackID] != forwarder {
+		r.mux.Unlock()
+		return
+	}
+	delete(r.forwarders, trackID)
+
+	subscribers := make([]Peer, 0, len(r.peers))
+	for peerID, peer := range r.peers {
+		if peerID != forwarder.PublisherID() {
+			subscribers = append(subscribers, peer)
+		}
+	}
+	r.mux.Unlock()
+
+	forwarder.Close()
+
+	for _, peer := range subscribers {
+		if err := peer.RemoveOutboundTracks([]string{trackID}); err != nil {
+			peer.Logger().Error("Failed to remove outbound track", slog.String("error", err.Error()))
+		}
+	}
+}
+
+func (r *Room) NotifyMemberLeft(memberID string, from Peer) {
 	r.mux.RLock()
 	recipients := make([]Peer, 0, len(r.peers))
 	for _, p := range r.peers {
-		if p != except {
+		if p != from {
 			recipients = append(recipients, p)
 		}
 	}
 	r.mux.RUnlock()
 
 	for _, peer := range recipients {
-		if err := peer.SendSignal(msg); err != nil {
-			peer.Logger().Error("Failed to send signal message", slog.String("error", err.Error()))
+		if err := peer.NotifyLeave(memberID); err != nil {
+			peer.Logger().Error("Failed to notify peer leave", slog.String("error", err.Error()))
 		}
 	}
 }

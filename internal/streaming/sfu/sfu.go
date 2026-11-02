@@ -2,6 +2,7 @@ package sfu
 
 import (
 	"sync"
+	"time"
 
 	"github.com/CMAK12/gonference/internal/streaming/sfu/codecs"
 	"github.com/pion/interceptor"
@@ -12,10 +13,11 @@ type SFU struct {
 	mux   sync.RWMutex
 	rooms map[string]*Room
 
-	api *webrtc.API
+	api          *webrtc.API
+	ownershipTTL time.Duration
 }
 
-func New() (*SFU, error) {
+func New(ownershipTTL time.Duration) (*SFU, error) {
 	mediaEngine := &webrtc.MediaEngine{}
 	for _, codec := range codecs.Video {
 		if err := mediaEngine.RegisterCodec(codec, webrtc.RTPCodecTypeVideo); err != nil {
@@ -40,8 +42,9 @@ func New() (*SFU, error) {
 	)
 
 	return &SFU{
-		api:   api,
-		rooms: make(map[string]*Room),
+		api:          api,
+		rooms:        make(map[string]*Room),
+		ownershipTTL: ownershipTTL,
 	}, nil
 }
 
@@ -59,7 +62,7 @@ func (s *SFU) GetOrCreateRoom(id string) *Room {
 
 	room, exists := s.rooms[id]
 	if !exists {
-		room = NewRoom(s.api, id, func() {
+		room = NewRoom(s.api, id, s.ownershipTTL, func() {
 			s.removeRoom(room)
 		})
 		s.rooms[id] = room

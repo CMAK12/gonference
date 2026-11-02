@@ -32,7 +32,7 @@ type Relay struct {
 
 type Signaling struct {
 	MaxResolveRetries int
-	RelayOwnershipTTL time.Duration
+	OwnershipTTL      time.Duration
 }
 
 type InMemoryDB struct {
